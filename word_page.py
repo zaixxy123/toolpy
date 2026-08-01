@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from clipboard_capture import ImageCaptureManager
 from utils import resource_path
-
 from word_tools import (
     refresh_open_documents,
     resize_images,
@@ -27,13 +27,22 @@ class ToolPyWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowIcon(QIcon(resource_path("assets/logo.ico")))
-
+        self.setWindowIcon(
+            QIcon(resource_path("assets/logo.ico"))
+        )
         self.setWindowTitle("ToolPy")
         self.resize(920, 700)
         self.setMinimumSize(760, 540)
 
         self.document_dropdown = QComboBox()
+
+        self.capture_manager = ImageCaptureManager(self)
+        self.capture_manager.count_changed.connect(
+            self._update_capture_count
+        )
+        self.capture_manager.state_changed.connect(
+            self._update_capture_state
+        )
 
         self._build_ui()
 
@@ -114,6 +123,7 @@ class ToolPyWindow(QMainWindow):
         layout.addWidget(self._create_document_card())
         layout.addWidget(self._create_behind_text_card())
         layout.addWidget(self._create_resize_card())
+        layout.addWidget(self._create_image_capture_card())
         layout.addStretch()
 
         scroll_area.setWidget(content)
@@ -292,6 +302,120 @@ class ToolPyWindow(QMainWindow):
 
         return card
 
+    def _create_image_capture_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        card.setMaximumWidth(700)
+        card.setMinimumHeight(230)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Image capture")
+        title.setObjectName("cardTitle")
+
+        text = QLabel(
+            "Start recording, copy images from different apps or websites, "
+            "then paste every captured image into the selected Word document."
+        )
+        text.setObjectName("cardText")
+        text.setWordWrap(True)
+
+        self.capture_state_label = QLabel("Status: Idle")
+        self.capture_state_label.setObjectName("cardText")
+
+        self.capture_count_label = QLabel("Captured: 0 images")
+        self.capture_count_label.setObjectName("cardText")
+
+        button_row = QHBoxLayout()
+        button_row.setSpacing(10)
+
+        self.start_capture_button = QPushButton("Start Capture")
+        self.start_capture_button.setObjectName("actionButton")
+        self.start_capture_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        self.start_capture_button.setFixedSize(145, 44)
+        self.start_capture_button.clicked.connect(
+            self._start_image_capture
+        )
+
+        self.paste_capture_button = QPushButton("Paste Images")
+        self.paste_capture_button.setObjectName("actionButton")
+        self.paste_capture_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        self.paste_capture_button.setFixedSize(145, 44)
+        self.paste_capture_button.setEnabled(False)
+        self.paste_capture_button.clicked.connect(
+            self._paste_captured_images
+        )
+
+        self.cancel_capture_button = QPushButton("Cancel")
+        self.cancel_capture_button.setObjectName("secondaryButton")
+        self.cancel_capture_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        self.cancel_capture_button.setFixedSize(105, 44)
+        self.cancel_capture_button.setEnabled(False)
+        self.cancel_capture_button.clicked.connect(
+            self._cancel_image_capture
+        )
+
+        button_row.addWidget(self.start_capture_button)
+        button_row.addWidget(self.paste_capture_button)
+        button_row.addWidget(self.cancel_capture_button)
+        button_row.addStretch()
+
+        layout.addWidget(title)
+        layout.addWidget(text)
+        layout.addWidget(self.capture_state_label)
+        layout.addWidget(self.capture_count_label)
+        layout.addSpacing(6)
+        layout.addLayout(button_row)
+
+        return card
+
+    def _start_image_capture(self):
+        self.capture_manager.start()
+
+        self.start_capture_button.setEnabled(False)
+        self.start_capture_button.setText("Recording...")
+        self.paste_capture_button.setEnabled(False)
+        self.cancel_capture_button.setEnabled(True)
+
+    def _paste_captured_images(self):
+        self.capture_manager.paste_into_word(
+            self.document_dropdown,
+            self,
+        )
+
+    def _cancel_image_capture(self):
+        self.capture_manager.cancel()
+        self._reset_capture_buttons()
+
+    def _update_capture_count(self, count):
+        word = "image" if count == 1 else "images"
+        self.capture_count_label.setText(
+            f"Captured: {count} {word}"
+        )
+        self.paste_capture_button.setEnabled(
+            self.capture_manager.is_recording and count > 0
+        )
+
+    def _update_capture_state(self, state):
+        self.capture_state_label.setText(f"Status: {state}")
+
+        if state == "Idle":
+            self._reset_capture_buttons()
+
+    def _reset_capture_buttons(self):
+        self.start_capture_button.setEnabled(True)
+        self.start_capture_button.setText("Start Capture")
+        self.paste_capture_button.setEnabled(False)
+        self.cancel_capture_button.setEnabled(False)
+
     def _apply_resize(self):
         try:
             width_cm = float(self.width_input.text())
@@ -321,3 +445,7 @@ class ToolPyWindow(QMainWindow):
             height_cm,
             resize_all,
         )
+
+    def closeEvent(self, event):
+        self.capture_manager.cancel()
+        super().closeEvent(event)

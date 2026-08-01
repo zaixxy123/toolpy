@@ -123,16 +123,6 @@ def set_all_images_behind_text(dropdown, parent):
         for index in range(1, shape_count + 1):
             document.Shapes(index).WrapFormat.Type = 3
 
-        QMessageBox.information(
-            parent,
-            "Finished",
-            f"Done!\n\n"
-            f"Document: {document.Name}\n"
-            f"Inline pictures converted: {converted_count}\n"
-            f"Total shapes processed: {shape_count}\n\n"
-            "The document was not automatically saved.",
-        )
-
     except Exception as error:
         QMessageBox.critical(
             parent,
@@ -206,15 +196,6 @@ def resize_images(
                 "Select an image inside Word first.",
             )
             return
-
-        QMessageBox.information(
-            parent,
-            "Finished",
-            f"Resized {resized} image(s).\n\n"
-            f"Width: {width_cm:.2f} cm\n"
-            f"Height: {height_cm:.2f} cm\n\n"
-            "The document was not automatically saved.",
-        )
 
     except Exception as error:
         QMessageBox.critical(
