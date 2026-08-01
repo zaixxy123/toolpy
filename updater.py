@@ -32,7 +32,11 @@ def _version_tuple(value):
     parts = []
 
     for piece in clean.split("."):
-        digits = "".join(character for character in piece if character.isdigit())
+        digits = "".join(
+            character
+            for character in piece
+            if character.isdigit()
+        )
         parts.append(int(digits or 0))
 
     while len(parts) < 3:
@@ -44,7 +48,9 @@ def _version_tuple(value):
 def _current_version():
     try:
         version_file = Path(resource_path("version.txt"))
-        return version_file.read_text(encoding="utf-8").strip()
+        return version_file.read_text(
+            encoding="utf-8"
+        ).strip()
     except Exception:
         return "0.0.0"
 
@@ -69,34 +75,57 @@ class UpdateCheckWorker(QThread):
                 },
             )
 
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(
+                request,
+                timeout=10,
+            ) as response:
                 release = json.load(response)
 
-            latest_version = release.get("tag_name", "").strip()
+            latest_version = release.get(
+                "tag_name",
+                "",
+            ).strip()
+
             download_url = ""
 
             for asset in release.get("assets", []):
                 if asset.get("name") == EXE_ASSET_NAME:
-                    download_url = asset.get("browser_download_url", "")
+                    download_url = asset.get(
+                        "browser_download_url",
+                        "",
+                    )
                     break
 
             if not latest_version:
-                raise RuntimeError("The latest GitHub release has no version tag.")
+                raise RuntimeError(
+                    "The latest GitHub release has no version tag."
+                )
 
             if not download_url:
                 raise RuntimeError(
-                    f"The latest release does not contain {EXE_ASSET_NAME}."
+                    "The latest release does not contain "
+                    f"{EXE_ASSET_NAME}."
                 )
 
-            if _version_tuple(latest_version) > _version_tuple(_current_version()):
-                self.update_available.emit(latest_version, download_url)
+            if (
+                _version_tuple(latest_version)
+                > _version_tuple(_current_version())
+            ):
+                self.update_available.emit(
+                    latest_version,
+                    download_url,
+                )
             else:
                 self.no_update.emit()
 
         except urllib.error.HTTPError as error:
-            self.failed.emit(f"GitHub returned HTTP {error.code}.")
+            self.failed.emit(
+                f"GitHub returned HTTP {error.code}."
+            )
         except urllib.error.URLError:
-            self.failed.emit("Could not connect to GitHub.")
+            self.failed.emit(
+                "Could not connect to GitHub."
+            )
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -117,15 +146,31 @@ class DownloadWorker(QThread):
                 headers={"User-Agent": USER_AGENT},
             )
 
-            destination = Path(tempfile.gettempdir()) / "ToolPy_update.exe"
+            destination = (
+                Path(tempfile.gettempdir())
+                / "ToolPy_update.exe"
+            )
 
-            with urllib.request.urlopen(request, timeout=30) as response:
-                total_size = int(response.headers.get("Content-Length", "0"))
+            if destination.exists():
+                destination.unlink()
+
+            with urllib.request.urlopen(
+                request,
+                timeout=60,
+            ) as response:
+                total_size = int(
+                    response.headers.get(
+                        "Content-Length",
+                        "0",
+                    )
+                )
                 downloaded = 0
 
                 with destination.open("wb") as output:
                     while True:
-                        chunk = response.read(1024 * 1024)
+                        chunk = response.read(
+                            1024 * 1024
+                        )
 
                         if not chunk:
                             break
@@ -134,11 +179,22 @@ class DownloadWorker(QThread):
                         downloaded += len(chunk)
 
                         if total_size > 0:
-                            percentage = int(downloaded * 100 / total_size)
-                            self.progress.emit(min(percentage, 100))
+                            percentage = int(
+                                downloaded
+                                * 100
+                                / total_size
+                            )
+                            self.progress.emit(
+                                min(percentage, 100)
+                            )
 
-            if not destination.exists() or destination.stat().st_size == 0:
-                raise RuntimeError("The downloaded update is empty.")
+            if (
+                not destination.exists()
+                or destination.stat().st_size == 0
+            ):
+                raise RuntimeError(
+                    "The downloaded update is empty."
+                )
 
             self.progress.emit(100)
             self.completed.emit(str(destination))
@@ -150,11 +206,11 @@ class DownloadWorker(QThread):
 class UpdateManager(QObject):
     def __init__(self):
         super().__init__()
+
         self.parent = None
         self.check_worker = None
         self.download_worker = None
         self.progress_dialog = None
-        self.latest_version = ""
 
     def check_for_updates(self, parent):
         self.parent = parent
@@ -163,20 +219,26 @@ class UpdateManager(QObject):
             return
 
         self.check_worker = UpdateCheckWorker()
-        self.check_worker.update_available.connect(self._offer_update)
-        self.check_worker.failed.connect(self._check_failed)
+        self.check_worker.update_available.connect(
+            self._offer_update
+        )
+        self.check_worker.failed.connect(
+            self._check_failed
+        )
         self.check_worker.start()
 
-    def _offer_update(self, latest_version, download_url):
-        self.latest_version = latest_version
-
+    def _offer_update(
+        self,
+        latest_version,
+        download_url,
+    ):
         answer = QMessageBox.question(
             self.parent,
-            "ToolPy Update Available",
-            f"A new ToolPy version is available.\n\n"
+            "Update Available",
+            "A new ToolPy version is available.\n\n"
             f"Current: v{_current_version().lstrip('v')}\n"
             f"Latest:  {latest_version}\n\n"
-            "Download, install, and restart ToolPy now?",
+            "Update now?",
             QMessageBox.StandardButton.Yes
             | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -187,67 +249,130 @@ class UpdateManager(QObject):
 
     def _download_update(self, download_url):
         self.progress_dialog = QProgressDialog(
-            "Downloading the ToolPy update...",
+            "Downloading update...",
             "",
             0,
             100,
             self.parent,
         )
-        self.progress_dialog.setWindowTitle("Updating ToolPy")
+        self.progress_dialog.setWindowTitle(
+            "Updating ToolPy"
+        )
         self.progress_dialog.setCancelButton(None)
         self.progress_dialog.setAutoClose(False)
         self.progress_dialog.setValue(0)
         self.progress_dialog.show()
 
-        self.download_worker = DownloadWorker(download_url)
-        self.download_worker.progress.connect(self.progress_dialog.setValue)
-        self.download_worker.completed.connect(self._install_and_restart)
-        self.download_worker.failed.connect(self._download_failed)
+        self.download_worker = DownloadWorker(
+            download_url
+        )
+        self.download_worker.progress.connect(
+            self.progress_dialog.setValue
+        )
+        self.download_worker.completed.connect(
+            self._install_and_restart
+        )
+        self.download_worker.failed.connect(
+            self._download_failed
+        )
         self.download_worker.start()
 
-    def _install_and_restart(self, downloaded_exe):
+    def _install_and_restart(
+        self,
+        downloaded_exe,
+    ):
         if self.progress_dialog:
             self.progress_dialog.setLabelText(
-                "Installing update and restarting ToolPy..."
+                "Installing and restarting..."
             )
             self.progress_dialog.setValue(100)
 
         try:
-            current_exe = Path(sys.executable).resolve()
-            downloaded_exe = Path(downloaded_exe).resolve()
-            batch_file = Path(tempfile.gettempdir()) / "ToolPy_update.bat"
+            current_exe = Path(
+                sys.executable
+            ).resolve()
+
+            downloaded_exe = Path(
+                downloaded_exe
+            ).resolve()
+
+            batch_file = (
+                Path(tempfile.gettempdir())
+                / "ToolPy_update.bat"
+            )
+
+            error_log = (
+                Path(tempfile.gettempdir())
+                / "ToolPy_update_error.txt"
+            )
+
             current_pid = os.getpid()
 
             script = (
                 "@echo off\n"
-                "setlocal\n"
+                "setlocal EnableExtensions\n"
                 f'set "CURRENT={current_exe}"\n'
                 f'set "UPDATE={downloaded_exe}"\n'
+                f'set "ERRORLOG={error_log}"\n'
                 f'set "PID={current_pid}"\n'
+                "set /a TRIES=0\n"
                 "\n"
-                ":wait_for_toolpy\n"
-                'tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL\n'
+                ":WAIT_FOR_APP\n"
+                'tasklist /FI "PID eq %PID%" '
+                '2>NUL | find "%PID%" >NUL\n'
                 "if not errorlevel 1 (\n"
                 "    timeout /t 1 /nobreak >NUL\n"
-                "    goto wait_for_toolpy\n"
+                "    goto WAIT_FOR_APP\n"
                 ")\n"
                 "\n"
-                'copy /Y "%UPDATE%" "%CURRENT%" >NUL\n'
-                "if errorlevel 1 (\n"
-                '    start "" cmd /c "echo ToolPy update failed.&pause"\n'
-                "    exit /b 1\n"
-                ")\n"
+                ":REPLACE\n"
+                "set /a TRIES+=1\n"
+                'del /F /Q "%CURRENT%" '
+                '>NUL 2>&1\n'
+                'move /Y "%UPDATE%" "%CURRENT%" '
+                '>NUL 2>&1\n'
+                'if exist "%CURRENT%" goto START_APP\n'
                 "\n"
-                'del /Q "%UPDATE%" >NUL 2>&1\n'
+                "if %TRIES% GEQ 20 goto FAILED\n"
+                "timeout /t 1 /nobreak >NUL\n"
+                "goto REPLACE\n"
+                "\n"
+                ":START_APP\n"
                 'start "" "%CURRENT%"\n'
-                'del /Q "%~f0"\n'
+                'del /Q "%ERRORLOG%" '
+                '>NUL 2>&1\n'
+                'del /Q "%~f0" >NUL 2>&1\n'
+                "exit /b 0\n"
+                "\n"
+                ":FAILED\n"
+                'echo ToolPy could not replace the old EXE. '
+                '> "%ERRORLOG%"\n'
+                'echo Current EXE: %CURRENT% '
+                '>> "%ERRORLOG%"\n'
+                'echo Downloaded EXE: %UPDATE% '
+                '>> "%ERRORLOG%"\n'
+                'start "" notepad.exe "%ERRORLOG%"\n'
+                'del /Q "%~f0" >NUL 2>&1\n'
+                "exit /b 1\n"
             )
 
-            batch_file.write_text(script, encoding="utf-8")
+            batch_file.write_text(
+                script,
+                encoding="utf-8",
+            )
 
-            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            creation_flags = getattr(
+                subprocess,
+                "CREATE_NO_WINDOW",
+                0,
+            )
+
             subprocess.Popen(
-                ["cmd.exe", "/c", str(batch_file)],
+                [
+                    "cmd.exe",
+                    "/c",
+                    str(batch_file),
+                ],
                 creationflags=creation_flags,
                 close_fds=True,
             )
@@ -258,12 +383,15 @@ class UpdateManager(QObject):
             QMessageBox.critical(
                 self.parent,
                 "Update Failed",
-                "ToolPy downloaded the update but could not install it.\n\n"
+                "ToolPy downloaded the update but "
+                "could not install it.\n\n"
                 f"{error}",
             )
 
     def _check_failed(self, message):
-        print(f"Update check skipped: {message}")
+        print(
+            f"Update check skipped: {message}"
+        )
 
     def _download_failed(self, message):
         if self.progress_dialog:
