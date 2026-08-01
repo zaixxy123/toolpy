@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from utils import resource_path
+
 from word_tools import (
     refresh_open_documents,
     resize_images,
@@ -25,7 +27,7 @@ class ToolPyWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowIcon(QIcon("assets/logo.ico"))
+        self.setWindowIcon(QIcon(resource_path("assets/logo.ico")))
 
         self.setWindowTitle("ToolPy")
         self.resize(920, 700)
