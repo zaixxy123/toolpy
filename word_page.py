@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from clipboard_capture import ImageCaptureManager
 from replacement_queue import ReplacementQueueManager
+from global_hotkeys import GlobalReplacementHotkeys
 from utils import resource_path
 from word_tools import (
     refresh_open_documents,
@@ -54,6 +55,17 @@ class ToolPyWindow(QMainWindow):
         )
         self.capture_manager.state_changed.connect(
             self._update_capture_state
+        )
+
+        self.global_replacement_hotkeys = GlobalReplacementHotkeys(self)
+        self.global_replacement_hotkeys.replace_requested.connect(
+            self._replace_from_hotkey
+        )
+        self.global_replacement_hotkeys.clear_requested.connect(
+            self._clear_queue_from_hotkey
+        )
+        self.global_replacement_hotkeys.activation_failed.connect(
+            self._global_hotkey_failed
         )
 
         self._build_ui()
@@ -417,6 +429,11 @@ class ToolPyWindow(QMainWindow):
         self.replacement_queue_current_label = QLabel("Current: —")
         self.replacement_queue_current_label.setObjectName("cardText")
 
+        self.replacement_hotkey_label = QLabel(
+            "Replacement mode: Off"
+        )
+        self.replacement_hotkey_label.setObjectName("cardText")
+
         button_row = QHBoxLayout()
         button_row.setSpacing(10)
 
@@ -458,6 +475,7 @@ class ToolPyWindow(QMainWindow):
         layout.addWidget(self.replacement_queue_state_label)
         layout.addWidget(self.replacement_queue_count_label)
         layout.addWidget(self.replacement_queue_current_label)
+        layout.addWidget(self.replacement_hotkey_label)
         layout.addSpacing(6)
         layout.addLayout(button_row)
         return card
@@ -475,15 +493,48 @@ class ToolPyWindow(QMainWindow):
             self.replace_from_queue_button.setEnabled(True)
             self.clear_replacement_queue_button.setEnabled(True)
 
+            if self.global_replacement_hotkeys.activate():
+                self.replacement_hotkey_label.setText(
+                    "Replacement mode: On — R replaces, Esc clears"
+                )
+            else:
+                self.replacement_hotkey_label.setText(
+                    "Replacement mode: Off — use the button"
+                )
+
     def _replace_from_queue(self):
         if self.replacement_queue_manager.replace_selected(self):
-            self.replace_from_queue_button.setEnabled(
-                self.replacement_queue_manager.has_remaining
-            )
+            has_remaining = self.replacement_queue_manager.has_remaining
+            self.replace_from_queue_button.setEnabled(has_remaining)
+
+            if not has_remaining:
+                self.global_replacement_hotkeys.deactivate()
+                self.replacement_hotkey_label.setText(
+                    "Replacement mode: Off — queue complete"
+                )
 
     def _clear_replacement_queue(self):
+        self.global_replacement_hotkeys.deactivate()
         self.replacement_queue_manager.clear()
+        self.replacement_hotkey_label.setText(
+            "Replacement mode: Off"
+        )
         self._reset_replacement_queue_buttons()
+
+    def _replace_from_hotkey(self):
+        if self.global_replacement_hotkeys.active:
+            self._replace_from_queue()
+
+    def _clear_queue_from_hotkey(self):
+        if self.global_replacement_hotkeys.active:
+            self._clear_replacement_queue()
+
+    def _global_hotkey_failed(self, message):
+        QMessageBox.warning(
+            self,
+            "Hotkey Unavailable",
+            message,
+        )
 
     def _update_replacement_queue_state(self, state):
         self.replacement_queue_state_label.setText(f"Status: {state}")
@@ -505,6 +556,9 @@ class ToolPyWindow(QMainWindow):
         self.finish_replacement_queue_button.setEnabled(False)
         self.replace_from_queue_button.setEnabled(False)
         self.clear_replacement_queue_button.setEnabled(False)
+        self.replacement_hotkey_label.setText(
+            "Replacement mode: Off"
+        )
 
     def _start_image_capture(self):
         self.capture_manager.start()
@@ -576,5 +630,7 @@ class ToolPyWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
+        self.global_replacement_hotkeys.deactivate()
+        self.replacement_queue_manager.clear()
         self.capture_manager.cancel()
         super().closeEvent(event)
