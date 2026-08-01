@@ -1,9 +1,11 @@
 import sys
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from theme import APP_STYLE
+from updater import UpdateManager
 from utils import resource_path
 from word_page import ToolPyWindow
 
@@ -15,6 +17,12 @@ def main():
 
     window = ToolPyWindow()
     window.show()
+
+    app.update_manager = UpdateManager()
+    QTimer.singleShot(
+        1500,
+        lambda: app.update_manager.check_for_updates(window),
+    )
 
     sys.exit(app.exec())
 

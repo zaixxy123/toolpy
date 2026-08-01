@@ -18,7 +18,8 @@
   <a target="code" href="///C:/Users/newaa/OneDrive/Desktop/ToolPy/main.py" type="text/plain"><tt>main.py</tt></a>
 <span class="moduletype">Script</span>  <div class="import">
 imports:
-    <a href="#PySide6.QtGui">PySide6.QtGui</a>
+    <a href="#PySide6.QtCore">PySide6.QtCore</a>
+ &#8226;   <a href="#PySide6.QtGui">PySide6.QtGui</a>
  &#8226;   <a href="#PySide6.QtWidgets">PySide6.QtWidgets</a>
  &#8226;   <a href="#_collections_abc">_collections_abc</a>
  &#8226;   <a href="#_weakrefset">_weakrefset</a>
@@ -179,6 +180,7 @@ imports:
  &#8226;   <a href="#theme">theme</a>
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#types">types</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#utils">utils</a>
  &#8226;   <a href="#warnings">warnings</a>
  &#8226;   <a href="#weakref">weakref</a>
@@ -344,6 +346,8 @@ imported by:
  &#8226;   <a href="#PySide6.QtGui">PySide6.QtGui</a>
  &#8226;   <a href="#PySide6.QtNetwork">PySide6.QtNetwork</a>
  &#8226;   <a href="#PySide6.QtWidgets">PySide6.QtWidgets</a>
+ &#8226;   <a href="#main.py">main.py</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#word_page">word_page</a>
 
   </div>
@@ -420,6 +424,7 @@ imports:
 imported by:
     <a href="#PySide6.QtWidgets">PySide6.QtWidgets</a>
  &#8226;   <a href="#main.py">main.py</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#word_page">word_page</a>
  &#8226;   <a href="#word_tools">word_tools</a>
 
@@ -6417,6 +6422,7 @@ imported by:
  &#8226;   <a href="#json.decoder">json.decoder</a>
  &#8226;   <a href="#json.encoder">json.encoder</a>
  &#8226;   <a href="#json.scanner">json.scanner</a>
+ &#8226;   <a href="#updater">updater</a>
 
   </div>
 
@@ -6864,6 +6870,7 @@ imported by:
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#tempfile">tempfile</a>
  &#8226;   <a href="#threading">threading</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#utils">utils</a>
  &#8226;   <a href="#win32com">win32com</a>
@@ -6930,6 +6937,7 @@ imported by:
  &#8226;   <a href="#importlib.resources.abc">importlib.resources.abc</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
  &#8226;   <a href="#pathlib._os">pathlib._os</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#zipfile._path">zipfile._path</a>
 
   </div>
@@ -8009,6 +8017,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#os">os</a>
+ &#8226;   <a href="#updater">updater</a>
 
   </div>
 
@@ -8096,6 +8105,7 @@ imported by:
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#types">types</a>
  &#8226;   <a href="#typing">typing</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#utils">utils</a>
  &#8226;   <a href="#warnings">warnings</a>
@@ -8172,6 +8182,7 @@ imports:
 imported by:
     <a href="#importlib.resources._common">importlib.resources._common</a>
  &#8226;   <a href="#shiboken6">shiboken6</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#urllib.response">urllib.response</a>
 
@@ -8489,6 +8500,32 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="updater"></a>
+  <a target="code" href="///C:/Users/newaa/OneDrive/Desktop/ToolPy/updater.py" type="text/plain"><tt>updater</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#PySide6.QtCore">PySide6.QtCore</a>
+ &#8226;   <a href="#PySide6.QtWidgets">PySide6.QtWidgets</a>
+ &#8226;   <a href="#json">json</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#subprocess">subprocess</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tempfile">tempfile</a>
+ &#8226;   <a href="#urllib.error">urllib.error</a>
+ &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#utils">utils</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="urllib"></a>
   <a target="code" href="///C:/Users/newaa/AppData/Local/Programs/Python/Python314/Lib/urllib/__init__.py" type="text/plain"><tt>urllib</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
@@ -8516,6 +8553,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
 
   </div>
@@ -8590,6 +8628,7 @@ imports:
 imported by:
     <a href="#http.cookiejar">http.cookiejar</a>
  &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#updater">updater</a>
 
   </div>
 
@@ -8625,6 +8664,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#main.py">main.py</a>
+ &#8226;   <a href="#updater">updater</a>
  &#8226;   <a href="#word_page">word_page</a>
 
   </div>
