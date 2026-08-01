@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from clipboard_capture import ImageCaptureManager
+from replacement_queue import ReplacementQueueManager
 from utils import resource_path
 from word_tools import (
     refresh_open_documents,
@@ -37,6 +38,17 @@ class ToolPyWindow(QMainWindow):
         self.document_dropdown = QComboBox()
 
         self.capture_manager = ImageCaptureManager(self)
+
+        self.replacement_queue_manager = ReplacementQueueManager(self)
+        self.replacement_queue_manager.state_changed.connect(
+            self._update_replacement_queue_state
+        )
+        self.replacement_queue_manager.count_changed.connect(
+            self._update_replacement_queue_count
+        )
+        self.replacement_queue_manager.current_changed.connect(
+            self._update_replacement_queue_current
+        )
         self.capture_manager.count_changed.connect(
             self._update_capture_count
         )
@@ -124,6 +136,7 @@ class ToolPyWindow(QMainWindow):
         layout.addWidget(self._create_behind_text_card())
         layout.addWidget(self._create_resize_card())
         layout.addWidget(self._create_image_capture_card())
+        layout.addWidget(self._create_replacement_queue_card())
         layout.addStretch()
 
         scroll_area.setWidget(content)
@@ -376,6 +389,122 @@ class ToolPyWindow(QMainWindow):
         layout.addLayout(button_row)
 
         return card
+
+    def _create_replacement_queue_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        card.setMaximumWidth(700)
+        card.setMinimumHeight(255)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Replacement queue")
+        title.setObjectName("cardTitle")
+
+        text = QLabel(
+            "Capture several images in order. Finish capture, then select "
+            "one Word image at a time and replace it with the next image."
+        )
+        text.setObjectName("cardText")
+        text.setWordWrap(True)
+
+        self.replacement_queue_state_label = QLabel("Status: Idle")
+        self.replacement_queue_state_label.setObjectName("cardText")
+        self.replacement_queue_count_label = QLabel("Captured: 0 images")
+        self.replacement_queue_count_label.setObjectName("cardText")
+        self.replacement_queue_current_label = QLabel("Current: —")
+        self.replacement_queue_current_label.setObjectName("cardText")
+
+        button_row = QHBoxLayout()
+        button_row.setSpacing(10)
+
+        self.start_replacement_queue_button = QPushButton("Start Capture")
+        self.start_replacement_queue_button.setObjectName("actionButton")
+        self.start_replacement_queue_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.start_replacement_queue_button.setFixedSize(145, 44)
+        self.start_replacement_queue_button.clicked.connect(self._start_replacement_queue)
+
+        self.finish_replacement_queue_button = QPushButton("Finish Capture")
+        self.finish_replacement_queue_button.setObjectName("secondaryButton")
+        self.finish_replacement_queue_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.finish_replacement_queue_button.setFixedSize(145, 44)
+        self.finish_replacement_queue_button.setEnabled(False)
+        self.finish_replacement_queue_button.clicked.connect(self._finish_replacement_queue)
+
+        self.replace_from_queue_button = QPushButton("Replace Selected")
+        self.replace_from_queue_button.setObjectName("actionButton")
+        self.replace_from_queue_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.replace_from_queue_button.setFixedSize(155, 44)
+        self.replace_from_queue_button.setEnabled(False)
+        self.replace_from_queue_button.clicked.connect(self._replace_from_queue)
+
+        self.clear_replacement_queue_button = QPushButton("Clear Queue")
+        self.clear_replacement_queue_button.setObjectName("secondaryButton")
+        self.clear_replacement_queue_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_replacement_queue_button.setFixedSize(120, 44)
+        self.clear_replacement_queue_button.setEnabled(False)
+        self.clear_replacement_queue_button.clicked.connect(self._clear_replacement_queue)
+
+        button_row.addWidget(self.start_replacement_queue_button)
+        button_row.addWidget(self.finish_replacement_queue_button)
+        button_row.addWidget(self.replace_from_queue_button)
+        button_row.addWidget(self.clear_replacement_queue_button)
+        button_row.addStretch()
+
+        layout.addWidget(title)
+        layout.addWidget(text)
+        layout.addWidget(self.replacement_queue_state_label)
+        layout.addWidget(self.replacement_queue_count_label)
+        layout.addWidget(self.replacement_queue_current_label)
+        layout.addSpacing(6)
+        layout.addLayout(button_row)
+        return card
+
+    def _start_replacement_queue(self):
+        self.replacement_queue_manager.start_capture()
+        self.start_replacement_queue_button.setEnabled(False)
+        self.finish_replacement_queue_button.setEnabled(True)
+        self.replace_from_queue_button.setEnabled(False)
+        self.clear_replacement_queue_button.setEnabled(True)
+
+    def _finish_replacement_queue(self):
+        if self.replacement_queue_manager.finish_capture(self):
+            self.finish_replacement_queue_button.setEnabled(False)
+            self.replace_from_queue_button.setEnabled(True)
+            self.clear_replacement_queue_button.setEnabled(True)
+
+    def _replace_from_queue(self):
+        if self.replacement_queue_manager.replace_selected(self):
+            self.replace_from_queue_button.setEnabled(
+                self.replacement_queue_manager.has_remaining
+            )
+
+    def _clear_replacement_queue(self):
+        self.replacement_queue_manager.clear()
+        self._reset_replacement_queue_buttons()
+
+    def _update_replacement_queue_state(self, state):
+        self.replacement_queue_state_label.setText(f"Status: {state}")
+        if state == "Idle":
+            self._reset_replacement_queue_buttons()
+
+    def _update_replacement_queue_count(self, count):
+        word = "image" if count == 1 else "images"
+        self.replacement_queue_count_label.setText(f"Captured: {count} {word}")
+
+    def _update_replacement_queue_current(self, current, total):
+        if total == 0:
+            self.replacement_queue_current_label.setText("Current: —")
+        else:
+            self.replacement_queue_current_label.setText(f"Current: {current} / {total}")
+
+    def _reset_replacement_queue_buttons(self):
+        self.start_replacement_queue_button.setEnabled(True)
+        self.finish_replacement_queue_button.setEnabled(False)
+        self.replace_from_queue_button.setEnabled(False)
+        self.clear_replacement_queue_button.setEnabled(False)
 
     def _start_image_capture(self):
         self.capture_manager.start()
