@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -17,6 +19,7 @@ from PySide6.QtWidgets import (
 from clipboard_capture import ImageCaptureManager
 from replacement_queue import ReplacementQueueManager
 from global_hotkeys import GlobalReplacementHotkeys
+from excel_page import ExcelPage
 from utils import resource_path
 from word_tools import (
     refresh_open_documents,
@@ -58,11 +61,17 @@ class ToolPyWindow(QMainWindow):
         )
 
         self.global_replacement_hotkeys = GlobalReplacementHotkeys(self)
+        self.global_replacement_hotkeys.finish_requested.connect(
+            self._finish_replacement_queue
+        )
         self.global_replacement_hotkeys.replace_requested.connect(
             self._replace_from_hotkey
         )
-        self.global_replacement_hotkeys.clear_requested.connect(
-            self._clear_queue_from_hotkey
+        self.global_replacement_hotkeys.paste_requested.connect(
+            self._paste_from_hotkey
+        )
+        self.global_replacement_hotkeys.escape_requested.connect(
+            self._escape_from_hotkey
         )
         self.global_replacement_hotkeys.activation_failed.connect(
             self._global_hotkey_failed
@@ -83,8 +92,12 @@ class ToolPyWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
+        self.page_stack = QStackedWidget()
+        self.page_stack.addWidget(self._create_word_page())
+        self.page_stack.addWidget(ExcelPage())
+
         main_layout.addWidget(self._create_sidebar())
-        main_layout.addWidget(self._create_word_page(), 1)
+        main_layout.addWidget(self.page_stack, 1)
 
         self.setCentralWidget(central_widget)
 
@@ -100,9 +113,25 @@ class ToolPyWindow(QMainWindow):
         app_title = QLabel("ToolPy")
         app_title.setObjectName("appTitle")
 
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+
+        self.word_button = self._nav_button("Word", checked=True)
+        self.excel_button = self._nav_button("Excel")
+
+        self.nav_group.addButton(self.word_button)
+        self.nav_group.addButton(self.excel_button)
+
+        self.word_button.clicked.connect(
+            lambda: self.page_stack.setCurrentIndex(0)
+        )
+        self.excel_button.clicked.connect(
+            lambda: self.page_stack.setCurrentIndex(1)
+        )
+
         layout.addWidget(app_title)
-        layout.addWidget(self._nav_button("Word", checked=True))
-        layout.addWidget(self._nav_button("Excel"))
+        layout.addWidget(self.word_button)
+        layout.addWidget(self.excel_button)
         layout.addStretch()
 
         return sidebar
@@ -450,13 +479,6 @@ class ToolPyWindow(QMainWindow):
         self.finish_replacement_queue_button.setEnabled(False)
         self.finish_replacement_queue_button.clicked.connect(self._finish_replacement_queue)
 
-        self.replace_from_queue_button = QPushButton("Replace Selected")
-        self.replace_from_queue_button.setObjectName("actionButton")
-        self.replace_from_queue_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.replace_from_queue_button.setFixedSize(155, 44)
-        self.replace_from_queue_button.setEnabled(False)
-        self.replace_from_queue_button.clicked.connect(self._replace_from_queue)
-
         self.clear_replacement_queue_button = QPushButton("Clear Queue")
         self.clear_replacement_queue_button.setObjectName("secondaryButton")
         self.clear_replacement_queue_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -466,7 +488,6 @@ class ToolPyWindow(QMainWindow):
 
         button_row.addWidget(self.start_replacement_queue_button)
         button_row.addWidget(self.finish_replacement_queue_button)
-        button_row.addWidget(self.replace_from_queue_button)
         button_row.addWidget(self.clear_replacement_queue_button)
         button_row.addStretch()
 
@@ -484,36 +505,57 @@ class ToolPyWindow(QMainWindow):
         self.replacement_queue_manager.start_capture()
         self.start_replacement_queue_button.setEnabled(False)
         self.finish_replacement_queue_button.setEnabled(True)
-        self.replace_from_queue_button.setEnabled(False)
         self.clear_replacement_queue_button.setEnabled(True)
 
+        if self.global_replacement_hotkeys.activate_capture():
+            self.replacement_hotkey_label.setText(
+                "Capture mode: On — F finishes, Esc cancels"
+            )
+        else:
+            self.replacement_hotkey_label.setText(
+                "Capture mode: Hotkeys unavailable"
+            )
+
     def _finish_replacement_queue(self):
+        if not self.replacement_queue_manager.is_recording:
+            return
+
         if self.replacement_queue_manager.finish_capture(self):
+            self.global_replacement_hotkeys.deactivate()
             self.finish_replacement_queue_button.setEnabled(False)
-            self.replace_from_queue_button.setEnabled(True)
             self.clear_replacement_queue_button.setEnabled(True)
 
-            if self.global_replacement_hotkeys.activate():
+            if self.global_replacement_hotkeys.activate_replacement():
                 self.replacement_hotkey_label.setText(
-                    "Replacement mode: On — R replaces, Esc clears"
+                    "Replacement mode: On — R replaces, P pastes, Esc exits"
                 )
             else:
                 self.replacement_hotkey_label.setText(
-                    "Replacement mode: Off — use the button"
+                    "Replacement mode: Hotkeys unavailable"
                 )
 
     def _replace_from_queue(self):
         if self.replacement_queue_manager.replace_selected(self):
-            has_remaining = self.replacement_queue_manager.has_remaining
-            self.replace_from_queue_button.setEnabled(has_remaining)
+            self._check_queue_finished()
 
-            if not has_remaining:
-                self.global_replacement_hotkeys.deactivate()
-                self.replacement_hotkey_label.setText(
-                    "Replacement mode: Off — queue complete"
-                )
+    def _paste_from_queue(self):
+        if self.replacement_queue_manager.paste_next(self):
+            self._check_queue_finished()
+
+    def _check_queue_finished(self):
+        if not self.replacement_queue_manager.has_remaining:
+            self.global_replacement_hotkeys.deactivate()
+            self.replacement_hotkey_label.setText(
+                "Replacement mode: Off — queue complete"
+            )
 
     def _clear_replacement_queue(self):
+        if not self._confirm_queue_clear():
+            return
+
+        self._force_clear_replacement_queue()
+
+    def _force_clear_replacement_queue(self):
         self.global_replacement_hotkeys.deactivate()
         self.replacement_queue_manager.clear()
         self.replacement_hotkey_label.setText(
@@ -521,12 +563,51 @@ class ToolPyWindow(QMainWindow):
         )
         self._reset_replacement_queue_buttons()
 
+    def _confirm_queue_clear(self):
+        if self.replacement_queue_manager.is_recording:
+            captured = self.replacement_queue_manager.count
+
+            if captured == 0:
+                return True
+
+            answer = QMessageBox.question(
+                self,
+                "Cancel Capture?",
+                f"Discard {captured} captured image(s)?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return answer == QMessageBox.StandardButton.Yes
+
+        remaining = self.replacement_queue_manager.remaining
+
+        if remaining == 0:
+            return True
+
+        answer = QMessageBox.question(
+            self,
+            "Exit Replacement Mode?",
+            f"Discard {remaining} remaining queued image(s)?",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _replace_from_hotkey(self):
-        if self.global_replacement_hotkeys.active:
+        if self.global_replacement_hotkeys.mode == "replacement":
             self._replace_from_queue()
 
-    def _clear_queue_from_hotkey(self):
-        if self.global_replacement_hotkeys.active:
+    def _paste_from_hotkey(self):
+        if self.global_replacement_hotkeys.mode == "replacement":
+            self._paste_from_queue()
+
+    def _escape_from_hotkey(self):
+        if self.global_replacement_hotkeys.mode in (
+            "capture",
+            "replacement",
+        ):
             self._clear_replacement_queue()
 
     def _global_hotkey_failed(self, message):
@@ -554,7 +635,6 @@ class ToolPyWindow(QMainWindow):
     def _reset_replacement_queue_buttons(self):
         self.start_replacement_queue_button.setEnabled(True)
         self.finish_replacement_queue_button.setEnabled(False)
-        self.replace_from_queue_button.setEnabled(False)
         self.clear_replacement_queue_button.setEnabled(False)
         self.replacement_hotkey_label.setText(
             "Replacement mode: Off"

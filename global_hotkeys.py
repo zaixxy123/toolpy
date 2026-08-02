@@ -14,9 +14,10 @@ WM_SYSKEYDOWN = 0x0104
 WM_SYSKEYUP = 0x0105
 WM_QUIT = 0x0012
 
+VK_F = 0x46
+VK_P = 0x50
 VK_R = 0x52
 VK_ESCAPE = 0x1B
-
 
 LRESULT = ctypes.c_ssize_t
 HHOOK = wintypes.HANDLE
@@ -41,8 +42,10 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
 
 
 class GlobalReplacementHotkeys(QObject):
+    finish_requested = Signal()
     replace_requested = Signal()
-    clear_requested = Signal()
+    paste_requested = Signal()
+    escape_requested = Signal()
     activation_failed = Signal(str)
 
     def __init__(self, parent=None):
@@ -60,6 +63,7 @@ class GlobalReplacementHotkeys(QObject):
         self._configure_windows_api()
 
         self.active = False
+        self.mode = "off"
         self._hook = None
         self._hook_proc = None
         self._thread = None
@@ -123,10 +127,18 @@ class GlobalReplacementHotkeys(QObject):
         ]
         self.user32.PostThreadMessageW.restype = wintypes.BOOL
 
-    def activate(self):
-        if self.active:
+    def activate_capture(self):
+        return self._activate("capture")
+
+    def activate_replacement(self):
+        return self._activate("replacement")
+
+    def _activate(self, mode):
+        if self.active and self.mode == mode:
             return True
 
+        self.deactivate()
+        self.mode = mode
         self._ready.clear()
         self._install_error = ""
 
@@ -137,25 +149,23 @@ class GlobalReplacementHotkeys(QObject):
         self._thread.start()
 
         if not self._ready.wait(timeout=3):
+            self.mode = "off"
             self.activation_failed.emit(
                 "ToolPy could not start the keyboard listener."
             )
             return False
 
         if self._install_error:
-            self.activation_failed.emit(
-                self._install_error
-            )
+            self.mode = "off"
+            self.activation_failed.emit(self._install_error)
             return False
 
         self.active = True
         return True
 
     def deactivate(self):
-        if not self.active and self._thread is None:
-            return
-
         self.active = False
+        self.mode = "off"
 
         if self._thread_id:
             self.user32.PostThreadMessageW(
@@ -165,10 +175,7 @@ class GlobalReplacementHotkeys(QObject):
                 0,
             )
 
-        if (
-            self._thread is not None
-            and self._thread.is_alive()
-        ):
+        if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
         self._thread = None
@@ -177,16 +184,10 @@ class GlobalReplacementHotkeys(QObject):
         self._hook_proc = None
 
     def _keyboard_thread(self):
-        self._thread_id = (
-            self.kernel32.GetCurrentThreadId()
-        )
+        self._thread_id = self.kernel32.GetCurrentThreadId()
 
         @HOOKPROC
-        def hook_callback(
-            code,
-            w_param,
-            l_param,
-        ):
+        def hook_callback(code, w_param, l_param):
             if code == HC_ACTION:
                 keyboard = ctypes.cast(
                     l_param,
@@ -194,24 +195,35 @@ class GlobalReplacementHotkeys(QObject):
                 ).contents
 
                 key = keyboard.vkCode
+                handled = False
 
-                if key in (VK_R, VK_ESCAPE):
-                    if w_param in (
-                        WM_KEYDOWN,
-                        WM_SYSKEYDOWN,
-                    ):
+                if self.mode == "capture":
+                    handled = key in (VK_F, VK_ESCAPE)
+
+                    if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                        if key == VK_F:
+                            self.finish_requested.emit()
+                        elif key == VK_ESCAPE:
+                            self.escape_requested.emit()
+
+                elif self.mode == "replacement":
+                    handled = key in (VK_R, VK_P, VK_ESCAPE)
+
+                    if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
                         if key == VK_R:
                             self.replace_requested.emit()
-                        else:
-                            self.clear_requested.emit()
+                        elif key == VK_P:
+                            self.paste_requested.emit()
+                        elif key == VK_ESCAPE:
+                            self.escape_requested.emit()
 
-                    if w_param in (
-                        WM_KEYDOWN,
-                        WM_KEYUP,
-                        WM_SYSKEYDOWN,
-                        WM_SYSKEYUP,
-                    ):
-                        return 1
+                if handled and w_param in (
+                    WM_KEYDOWN,
+                    WM_KEYUP,
+                    WM_SYSKEYDOWN,
+                    WM_SYSKEYUP,
+                ):
+                    return 1
 
             return self.user32.CallNextHookEx(
                 self._hook,
@@ -221,10 +233,7 @@ class GlobalReplacementHotkeys(QObject):
             )
 
         self._hook_proc = hook_callback
-
-        module_handle = (
-            self.kernel32.GetModuleHandleW(None)
-        )
+        module_handle = self.kernel32.GetModuleHandleW(None)
 
         if not module_handle:
             error_code = ctypes.get_last_error()
@@ -247,14 +256,13 @@ class GlobalReplacementHotkeys(QObject):
         if not self._hook:
             error_code = ctypes.get_last_error()
             self._install_error = (
-                "ToolPy could not activate R and Esc.\n\n"
+                "ToolPy could not activate the keyboard shortcuts.\n\n"
                 f"Windows error code: {error_code}"
             )
             self._ready.set()
             return
 
         self._ready.set()
-
         message = wintypes.MSG()
 
         while self.user32.GetMessageW(
@@ -263,16 +271,10 @@ class GlobalReplacementHotkeys(QObject):
             0,
             0,
         ) > 0:
-            self.user32.TranslateMessage(
-                ctypes.byref(message)
-            )
-            self.user32.DispatchMessageW(
-                ctypes.byref(message)
-            )
+            self.user32.TranslateMessage(ctypes.byref(message))
+            self.user32.DispatchMessageW(ctypes.byref(message))
 
         if self._hook:
-            self.user32.UnhookWindowsHookEx(
-                self._hook
-            )
+            self.user32.UnhookWindowsHookEx(self._hook)
 
         self._hook = None
