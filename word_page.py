@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from clipboard_capture import ImageCaptureManager
 from replacement_queue import ReplacementQueueManager
 from global_hotkeys import GlobalReplacementHotkeys
+from no_wheel_combo import NoWheelComboBox
 from excel_page import ExcelPage
 from utils import resource_path
 from word_tools import (
@@ -39,7 +40,7 @@ class ToolPyWindow(QMainWindow):
         self.resize(920, 700)
         self.setMinimumSize(760, 540)
 
-        self.document_dropdown = QComboBox()
+        self.document_dropdown = NoWheelComboBox()
 
         self.capture_manager = ImageCaptureManager(self)
 
@@ -298,7 +299,7 @@ class ToolPyWindow(QMainWindow):
         mode_label = QLabel("Mode")
         mode_label.setObjectName("cardText")
 
-        self.resize_mode = QComboBox()
+        self.resize_mode = NoWheelComboBox()
         self.resize_mode.addItems(
             [
                 "All images",
