@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from excel_tools import (
     apply_date_format,
+    apply_quick_calculate,
     apply_text_cleanup,
     refresh_open_workbooks,
     refresh_worksheets,
@@ -60,6 +61,7 @@ class ExcelPage(QWidget):
         layout.addWidget(self._create_workbook_card())
         layout.addWidget(self._create_date_format_card())
         layout.addWidget(self._create_text_cleanup_card())
+        layout.addWidget(self._create_quick_calculate_card())
         layout.addStretch()
 
         scroll_area.setWidget(content)
@@ -328,6 +330,167 @@ class ExcelPage(QWidget):
         )
 
         return card
+
+
+    def _create_quick_calculate_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        card.setMaximumWidth(700)
+        card.setMinimumHeight(500)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Quick Calculate")
+        title.setObjectName("cardTitle")
+
+        text = QLabel(
+            "Calculate numbers downward or to the right. "
+            "Auto mode stops at the first blank cell. "
+            "Range mode uses an exact start and end cell."
+        )
+        text.setObjectName("cardText")
+        text.setWordWrap(True)
+
+        mode_label = QLabel("Mode")
+        mode_label.setObjectName("cardText")
+
+        self.calculate_mode_dropdown = NoWheelComboBox()
+        self.calculate_mode_dropdown.addItems(
+            [
+                "Auto",
+                "Range",
+            ]
+        )
+        self.calculate_mode_dropdown.setMinimumHeight(42)
+        self.calculate_mode_dropdown.currentTextChanged.connect(
+            self._quick_calculate_mode_changed
+        )
+
+        start_label = QLabel("Start cell")
+        start_label.setObjectName("cardText")
+
+        self.calculate_start_input = QLineEdit("A2")
+        self.calculate_start_input.setPlaceholderText(
+            "Example: A2"
+        )
+        self.calculate_start_input.setMinimumHeight(42)
+        self.calculate_start_input.setMaxLength(8)
+
+        end_label = QLabel("End cell")
+        end_label.setObjectName("cardText")
+        self.calculate_end_label = end_label
+
+        self.calculate_end_input = QLineEdit("A5")
+        self.calculate_end_input.setPlaceholderText(
+            "Example: A5"
+        )
+        self.calculate_end_input.setMinimumHeight(42)
+        self.calculate_end_input.setMaxLength(8)
+        self.calculate_end_input.setEnabled(False)
+        self.calculate_end_label.setEnabled(False)
+
+        direction_label = QLabel("Direction")
+        direction_label.setObjectName("cardText")
+
+        self.calculate_direction_dropdown = NoWheelComboBox()
+        self.calculate_direction_dropdown.addItems(
+            [
+                "Down",
+                "Right",
+            ]
+        )
+        self.calculate_direction_dropdown.setMinimumHeight(42)
+
+        operation_label = QLabel("Operation")
+        operation_label.setObjectName("cardText")
+
+        self.calculate_operation_dropdown = NoWheelComboBox()
+        self.calculate_operation_dropdown.addItems(
+            [
+                "Sum",
+                "Average",
+                "Count",
+            ]
+        )
+        self.calculate_operation_dropdown.setMinimumHeight(42)
+
+        alignment_label = QLabel("Alignment")
+        alignment_label.setObjectName("cardText")
+
+        self.calculate_alignment_dropdown = NoWheelComboBox()
+        self.calculate_alignment_dropdown.addItems(
+            [
+                "No Change",
+                "Left",
+                "Center",
+                "Right",
+            ]
+        )
+        self.calculate_alignment_dropdown.setMinimumHeight(42)
+
+        apply_button = QPushButton("Apply")
+        apply_button.setObjectName("actionButton")
+        apply_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        apply_button.setFixedSize(135, 44)
+        apply_button.clicked.connect(
+            self._apply_quick_calculate
+        )
+
+        layout.addWidget(title)
+        layout.addWidget(text)
+
+        layout.addWidget(mode_label)
+        layout.addWidget(self.calculate_mode_dropdown)
+
+        layout.addWidget(start_label)
+        layout.addWidget(self.calculate_start_input)
+
+        layout.addWidget(self.calculate_end_label)
+        layout.addWidget(self.calculate_end_input)
+
+        layout.addWidget(direction_label)
+        layout.addWidget(self.calculate_direction_dropdown)
+
+        layout.addWidget(operation_label)
+        layout.addWidget(self.calculate_operation_dropdown)
+
+        layout.addWidget(alignment_label)
+        layout.addWidget(self.calculate_alignment_dropdown)
+
+        layout.addSpacing(8)
+        layout.addWidget(
+            apply_button,
+            alignment=Qt.AlignmentFlag.AlignLeft,
+        )
+
+        return card
+
+    def _quick_calculate_mode_changed(self, mode):
+        range_enabled = mode == "Range"
+
+        self.calculate_end_label.setEnabled(
+            range_enabled
+        )
+        self.calculate_end_input.setEnabled(
+            range_enabled
+        )
+
+    def _apply_quick_calculate(self):
+        apply_quick_calculate(
+            self,
+            self.workbook_dropdown,
+            self.worksheet_dropdown,
+            self.calculate_mode_dropdown.currentText(),
+            self.calculate_direction_dropdown.currentText(),
+            self.calculate_start_input.text(),
+            self.calculate_end_input.text(),
+            self.calculate_operation_dropdown.currentText(),
+            self.calculate_alignment_dropdown.currentText(),
+        )
 
     def _workbook_changed(self):
         refresh_worksheets(

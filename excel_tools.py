@@ -419,6 +419,239 @@ def apply_text_cleanup(
         )
 
 
+
+def apply_quick_calculate(
+    parent,
+    workbook_dropdown,
+    worksheet_dropdown,
+    mode,
+    direction,
+    start_cell_text,
+    end_cell_text,
+    operation,
+    alignment,
+):
+    target = _validate_target(
+        parent,
+        workbook_dropdown,
+        worksheet_dropdown,
+        start_cell_text,
+    )
+
+    if target is None:
+        return
+
+    _workbook, worksheet, start_cell, start_address = target
+
+    try:
+        if mode == "Auto":
+            cells, result_cell = _collect_quick_calculate_auto(
+                worksheet,
+                start_cell,
+                direction,
+            )
+
+            if not cells:
+                QMessageBox.warning(
+                    parent,
+                    "No Values Found",
+                    f"{start_address} is empty.",
+                )
+                return
+
+        else:
+            end_cell_text = end_cell_text.strip().upper()
+
+            if not re.fullmatch(
+                r"\$?[A-Z]{1,3}\$?[1-9]\d*",
+                end_cell_text,
+            ):
+                QMessageBox.warning(
+                    parent,
+                    "Invalid End Cell",
+                    "Enter a valid end cell such as A5 or E2.",
+                )
+                return
+
+            end_cell = worksheet.Range(end_cell_text)
+
+            cells, result_cell = _collect_quick_calculate_range(
+                parent,
+                worksheet,
+                start_cell,
+                end_cell,
+                direction,
+            )
+
+            if cells is None:
+                return
+
+        numeric_values = []
+
+        for cell in cells:
+            numeric_value = _to_number(cell.Value)
+
+            if numeric_value is not None:
+                numeric_values.append(numeric_value)
+
+        if operation == "Count":
+            result = len(numeric_values)
+
+        else:
+            if not numeric_values:
+                QMessageBox.warning(
+                    parent,
+                    "No Numbers Found",
+                    "The selected cells do not contain numeric values.",
+                )
+                return
+
+            if operation == "Sum":
+                result = sum(numeric_values)
+
+            elif operation == "Average":
+                result = sum(numeric_values) / len(numeric_values)
+
+            else:
+                QMessageBox.warning(
+                    parent,
+                    "Invalid Operation",
+                    "Choose Sum, Average, or Count.",
+                )
+                return
+
+        result_cell.Value = result
+        _apply_alignment(result_cell, alignment)
+
+    except Exception as error:
+        QMessageBox.critical(
+            parent,
+            "Quick Calculate Error",
+            "ToolPy could not calculate the selected cells.\n\n"
+            f"Error:\n{error}",
+        )
+
+
+def _collect_quick_calculate_auto(
+    worksheet,
+    start_cell,
+    direction,
+):
+    cells = []
+
+    row = start_cell.Row
+    column = start_cell.Column
+
+    while True:
+        cell = worksheet.Cells(row, column)
+        value = cell.Value
+
+        if value is None or str(value).strip() == "":
+            return cells, cell
+
+        cells.append(cell)
+
+        if direction == "Right":
+            column += 1
+        else:
+            row += 1
+
+
+def _collect_quick_calculate_range(
+    parent,
+    worksheet,
+    start_cell,
+    end_cell,
+    direction,
+):
+    start_row = start_cell.Row
+    start_column = start_cell.Column
+    end_row = end_cell.Row
+    end_column = end_cell.Column
+
+    cells = []
+
+    if direction == "Down":
+        if start_column != end_column:
+            QMessageBox.warning(
+                parent,
+                "Invalid Down Range",
+                "For Down direction, the start and end cells "
+                "must be in the same column.",
+            )
+            return None, None
+
+        if end_row < start_row:
+            QMessageBox.warning(
+                parent,
+                "Invalid Down Range",
+                "The end cell must be below the start cell.",
+            )
+            return None, None
+
+        for row in range(start_row, end_row + 1):
+            cells.append(
+                worksheet.Cells(row, start_column)
+            )
+
+        result_cell = worksheet.Cells(
+            end_row + 1,
+            start_column,
+        )
+
+    else:
+        if start_row != end_row:
+            QMessageBox.warning(
+                parent,
+                "Invalid Right Range",
+                "For Right direction, the start and end cells "
+                "must be in the same row.",
+            )
+            return None, None
+
+        if end_column < start_column:
+            QMessageBox.warning(
+                parent,
+                "Invalid Right Range",
+                "The end cell must be to the right of the start cell.",
+            )
+            return None, None
+
+        for column in range(
+            start_column,
+            end_column + 1,
+        ):
+            cells.append(
+                worksheet.Cells(start_row, column)
+            )
+
+        result_cell = worksheet.Cells(
+            start_row,
+            end_column + 1,
+        )
+
+    return cells, result_cell
+
+
+def _to_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip().replace(",", "")
+
+    if not text:
+        return None
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+
 def _detect_numeric_order(cells):
     mm_dd_evidence = 0
     dd_mm_evidence = 0
