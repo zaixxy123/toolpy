@@ -5,6 +5,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -24,7 +25,7 @@ RELEASE_API = (
     f"{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 )
 EXE_ASSET_NAME = "ToolPy.exe"
-USER_AGENT = "ToolPy-AutoUpdater"
+USER_AGENT = "ToolPy-AutoUpdater/1.0"
 
 
 def _version_tuple(value):
@@ -59,6 +60,10 @@ def _is_frozen_exe():
     return bool(getattr(sys, "frozen", False))
 
 
+def _powershell_quote(value):
+    return str(value).replace("'", "''")
+
+
 class UpdateCheckWorker(QThread):
     update_available = Signal(str, str)
     no_update = Signal()
@@ -72,28 +77,30 @@ class UpdateCheckWorker(QThread):
                     "Accept": "application/vnd.github+json",
                     "User-Agent": USER_AGENT,
                     "X-GitHub-Api-Version": "2022-11-28",
+                    "Cache-Control": "no-cache",
                 },
             )
 
             with urllib.request.urlopen(
                 request,
-                timeout=10,
+                timeout=15,
             ) as response:
                 release = json.load(response)
 
-            latest_version = release.get(
-                "tag_name",
-                "",
+            latest_version = str(
+                release.get("tag_name", "")
             ).strip()
 
             download_url = ""
 
             for asset in release.get("assets", []):
                 if asset.get("name") == EXE_ASSET_NAME:
-                    download_url = asset.get(
-                        "browser_download_url",
-                        "",
-                    )
+                    download_url = str(
+                        asset.get(
+                            "browser_download_url",
+                            "",
+                        )
+                    ).strip()
                     break
 
             if not latest_version:
@@ -122,9 +129,11 @@ class UpdateCheckWorker(QThread):
             self.failed.emit(
                 f"GitHub returned HTTP {error.code}."
             )
-        except urllib.error.URLError:
+        except urllib.error.URLError as error:
+            reason = getattr(error, "reason", "")
             self.failed.emit(
                 "Could not connect to GitHub."
+                + (f"\n{reason}" if reason else "")
             )
         except Exception as error:
             self.failed.emit(str(error))
@@ -140,29 +149,42 @@ class DownloadWorker(QThread):
         self.download_url = download_url
 
     def run(self):
+        destination = None
+
         try:
-            request = urllib.request.Request(
-                self.download_url,
-                headers={"User-Agent": USER_AGENT},
+            update_dir = (
+                Path(tempfile.gettempdir())
+                / "ToolPyUpdater"
+            )
+            update_dir.mkdir(
+                parents=True,
+                exist_ok=True,
             )
 
             destination = (
-                Path(tempfile.gettempdir())
-                / "ToolPy_update.exe"
+                update_dir
+                / f"ToolPy_update_{uuid.uuid4().hex}.exe"
             )
 
-            if destination.exists():
-                destination.unlink()
+            request = urllib.request.Request(
+                self.download_url,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept": "application/octet-stream",
+                    "Cache-Control": "no-cache",
+                },
+            )
 
             with urllib.request.urlopen(
                 request,
-                timeout=60,
+                timeout=120,
             ) as response:
                 total_size = int(
                     response.headers.get(
                         "Content-Length",
                         "0",
                     )
+                    or 0
                 )
                 downloaded = 0
 
@@ -185,21 +207,37 @@ class DownloadWorker(QThread):
                                 / total_size
                             )
                             self.progress.emit(
-                                min(percentage, 100)
+                                min(percentage, 99)
                             )
 
-            if (
-                not destination.exists()
-                or destination.stat().st_size == 0
-            ):
+            if not destination.exists():
                 raise RuntimeError(
-                    "The downloaded update is empty."
+                    "The downloaded update file was not created."
                 )
+
+            file_size = destination.stat().st_size
+
+            if file_size < 1024 * 1024:
+                raise RuntimeError(
+                    "The downloaded update is unexpectedly small."
+                )
+
+            with destination.open("rb") as downloaded_file:
+                if downloaded_file.read(2) != b"MZ":
+                    raise RuntimeError(
+                        "The downloaded file is not a valid Windows EXE."
+                    )
 
             self.progress.emit(100)
             self.completed.emit(str(destination))
 
         except Exception as error:
+            if destination is not None:
+                try:
+                    destination.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
             self.failed.emit(str(error))
 
 
@@ -218,6 +256,12 @@ class UpdateManager(QObject):
         if not _is_frozen_exe():
             return
 
+        if (
+            self.check_worker is not None
+            and self.check_worker.isRunning()
+        ):
+            return
+
         self.check_worker = UpdateCheckWorker()
         self.check_worker.update_available.connect(
             self._offer_update
@@ -225,7 +269,16 @@ class UpdateManager(QObject):
         self.check_worker.failed.connect(
             self._check_failed
         )
+        self.check_worker.finished.connect(
+            self._clear_check_worker
+        )
         self.check_worker.start()
+
+    def _clear_check_worker(self):
+        self.check_worker = None
+
+    def _clear_download_worker(self):
+        self.download_worker = None
 
     def _offer_update(
         self,
@@ -238,7 +291,7 @@ class UpdateManager(QObject):
             "A new ToolPy version is available.\n\n"
             f"Current: v{_current_version().lstrip('v')}\n"
             f"Latest:  {latest_version}\n\n"
-            "Update now?",
+            "Download and install it now?",
             QMessageBox.StandardButton.Yes
             | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -260,6 +313,8 @@ class UpdateManager(QObject):
         )
         self.progress_dialog.setCancelButton(None)
         self.progress_dialog.setAutoClose(False)
+        self.progress_dialog.setAutoReset(False)
+        self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(0)
         self.progress_dialog.show()
 
@@ -274,6 +329,9 @@ class UpdateManager(QObject):
         )
         self.download_worker.failed.connect(
             self._download_failed
+        )
+        self.download_worker.finished.connect(
+            self._clear_download_worker
         )
         self.download_worker.start()
 
@@ -291,95 +349,215 @@ class UpdateManager(QObject):
             current_exe = Path(
                 sys.executable
             ).resolve()
-
             downloaded_exe = Path(
                 downloaded_exe
             ).resolve()
 
-            batch_file = (
-                Path(tempfile.gettempdir())
-                / "ToolPy_update.bat"
-            )
+            if not current_exe.exists():
+                raise RuntimeError(
+                    "ToolPy could not locate its current EXE."
+                )
 
-            error_log = (
-                Path(tempfile.gettempdir())
+            if not downloaded_exe.exists():
+                raise RuntimeError(
+                    "The downloaded update file is missing."
+                )
+
+            update_dir = downloaded_exe.parent
+            script_file = (
+                update_dir
+                / f"install_{uuid.uuid4().hex}.ps1"
+            )
+            log_file = (
+                update_dir
                 / "ToolPy_update_error.txt"
+            )
+            backup_exe = current_exe.with_suffix(
+                current_exe.suffix + ".old"
             )
 
             current_pid = os.getpid()
+            working_directory = current_exe.parent
 
-            script = (
-                "@echo off\n"
-                "setlocal EnableExtensions\n"
-                f'set "CURRENT={current_exe}"\n'
-                f'set "UPDATE={downloaded_exe}"\n'
-                f'set "ERRORLOG={error_log}"\n'
-                f'set "PID={current_pid}"\n'
-                "set /a TRIES=0\n"
-                "\n"
-                ":WAIT_FOR_APP\n"
-                'tasklist /FI "PID eq %PID%" '
-                '2>NUL | find "%PID%" >NUL\n'
-                "if not errorlevel 1 (\n"
-                "    timeout /t 1 /nobreak >NUL\n"
-                "    goto WAIT_FOR_APP\n"
-                ")\n"
-                "\n"
-                ":REPLACE\n"
-                "set /a TRIES+=1\n"
-                'del /F /Q "%CURRENT%" '
-                '>NUL 2>&1\n'
-                'move /Y "%UPDATE%" "%CURRENT%" '
-                '>NUL 2>&1\n'
-                'if exist "%CURRENT%" goto START_APP\n'
-                "\n"
-                "if %TRIES% GEQ 20 goto FAILED\n"
-                "timeout /t 1 /nobreak >NUL\n"
-                "goto REPLACE\n"
-                "\n"
-                ":START_APP\n"
-                'start "" "%CURRENT%"\n'
-                'del /Q "%ERRORLOG%" '
-                '>NUL 2>&1\n'
-                'del /Q "%~f0" >NUL 2>&1\n'
-                "exit /b 0\n"
-                "\n"
-                ":FAILED\n"
-                'echo ToolPy could not replace the old EXE. '
-                '> "%ERRORLOG%"\n'
-                'echo Current EXE: %CURRENT% '
-                '>> "%ERRORLOG%"\n'
-                'echo Downloaded EXE: %UPDATE% '
-                '>> "%ERRORLOG%"\n'
-                'start "" notepad.exe "%ERRORLOG%"\n'
-                'del /Q "%~f0" >NUL 2>&1\n'
-                "exit /b 1\n"
+            current_ps = _powershell_quote(current_exe)
+            update_ps = _powershell_quote(downloaded_exe)
+            backup_ps = _powershell_quote(backup_exe)
+            log_ps = _powershell_quote(log_file)
+            workdir_ps = _powershell_quote(
+                working_directory
             )
 
-            batch_file.write_text(
+            script = f"""$ErrorActionPreference = 'Stop'
+
+$current = '{current_ps}'
+$update = '{update_ps}'
+$backup = '{backup_ps}'
+$log = '{log_ps}'
+$workingDirectory = '{workdir_ps}'
+$processId = {current_pid}
+
+function Restore-OldVersion {{
+    try {{
+        if (-not (Test-Path -LiteralPath $current) -and
+            (Test-Path -LiteralPath $backup)) {{
+            Move-Item -LiteralPath $backup `
+                -Destination $current -Force
+        }}
+    }} catch {{
+    }}
+}}
+
+try {{
+    for ($i = 0; $i -lt 120; $i++) {{
+        $process = Get-Process -Id $processId `
+            -ErrorAction SilentlyContinue
+
+        if ($null -eq $process) {{
+            break
+        }}
+
+        Start-Sleep -Milliseconds 500
+    }}
+
+    if (Get-Process -Id $processId `
+        -ErrorAction SilentlyContinue) {{
+        throw 'ToolPy did not close in time.'
+    }}
+
+    $installed = $false
+
+    for ($attempt = 1; $attempt -le 30; $attempt++) {{
+        try {{
+            if (Test-Path -LiteralPath $backup) {{
+                Remove-Item -LiteralPath $backup `
+                    -Force -ErrorAction SilentlyContinue
+            }}
+
+            if (Test-Path -LiteralPath $current) {{
+                Move-Item -LiteralPath $current `
+                    -Destination $backup -Force
+            }}
+
+            Copy-Item -LiteralPath $update `
+                -Destination $current -Force
+
+            if (-not (Test-Path -LiteralPath $current)) {{
+                throw 'The new ToolPy.exe was not created.'
+            }}
+
+            $newSize = (
+                Get-Item -LiteralPath $current
+            ).Length
+
+            if ($newSize -lt 1048576) {{
+                throw 'The new ToolPy.exe is unexpectedly small.'
+            }}
+
+            $installed = $true
+            break
+        }} catch {{
+            Restore-OldVersion
+            Start-Sleep -Seconds 1
+        }}
+    }}
+
+    if (-not $installed) {{
+        throw 'ToolPy could not replace the old EXE.'
+    }}
+
+    Start-Process -FilePath $current `
+        -WorkingDirectory $workingDirectory
+
+    Start-Sleep -Seconds 2
+
+    Remove-Item -LiteralPath $backup `
+        -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $update `
+        -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $log `
+        -Force -ErrorAction SilentlyContinue
+}} catch {{
+    Restore-OldVersion
+
+    $message = @(
+        'ToolPy update failed.'
+        ''
+        ('Error: ' + $_.Exception.Message)
+        ('Current EXE: ' + $current)
+        ('Downloaded EXE: ' + $update)
+    ) -join [Environment]::NewLine
+
+    Set-Content -LiteralPath $log `
+        -Value $message -Encoding UTF8
+
+    Start-Process -FilePath 'notepad.exe' `
+        -ArgumentList $log
+}} finally {{
+    Start-Sleep -Seconds 1
+    Remove-Item -LiteralPath $PSCommandPath `
+        -Force -ErrorAction SilentlyContinue
+}}
+"""
+
+            script_file.write_text(
                 script,
-                encoding="utf-8",
+                encoding="utf-8-sig",
             )
 
-            creation_flags = getattr(
-                subprocess,
-                "CREATE_NO_WINDOW",
-                0,
+            powershell = (
+                Path(
+                    os.environ.get(
+                        "SystemRoot",
+                        r"C:\Windows",
+                    )
+                )
+                / "System32"
+                / "WindowsPowerShell"
+                / "v1.0"
+                / "powershell.exe"
+            )
+
+            if not powershell.exists():
+                raise RuntimeError(
+                    "Windows PowerShell was not found."
+                )
+
+            creation_flags = (
+                getattr(
+                    subprocess,
+                    "CREATE_NO_WINDOW",
+                    0,
+                )
+                | getattr(
+                    subprocess,
+                    "DETACHED_PROCESS",
+                    0,
+                )
             )
 
             subprocess.Popen(
                 [
-                    "cmd.exe",
-                    "/c",
-                    str(batch_file),
+                    str(powershell),
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-File",
+                    str(script_file),
                 ],
                 creationflags=creation_flags,
                 close_fds=True,
+                cwd=str(working_directory),
             )
 
             QApplication.quit()
 
         except Exception as error:
+            if self.progress_dialog:
+                self.progress_dialog.close()
+
             QMessageBox.critical(
                 self.parent,
                 "Update Failed",

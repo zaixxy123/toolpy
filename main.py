@@ -12,16 +12,21 @@ from word_page import ToolPyWindow
 
 def main():
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon(resource_path("assets/logo.ico")))
+    app.setWindowIcon(
+        QIcon(resource_path("assets/logo.ico"))
+    )
     app.setStyleSheet(APP_STYLE)
 
     window = ToolPyWindow()
     window.show()
 
     app.update_manager = UpdateManager()
+
     QTimer.singleShot(
-        1500,
-        lambda: app.update_manager.check_for_updates(window),
+        4000,
+        lambda: app.update_manager.check_for_updates(
+            window
+        ),
     )
 
     sys.exit(app.exec())

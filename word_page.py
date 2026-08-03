@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
@@ -29,6 +31,18 @@ from word_tools import (
 )
 
 
+def get_app_version():
+    try:
+        return (
+            Path(resource_path("version.txt"))
+            .read_text(encoding="utf-8")
+            .strip()
+            .lstrip("v")
+        )
+    except Exception:
+        return "0.0.0"
+
+
 class ToolPyWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -36,7 +50,10 @@ class ToolPyWindow(QMainWindow):
         self.setWindowIcon(
             QIcon(resource_path("assets/logo.ico"))
         )
-        self.setWindowTitle("ToolPy")
+        self.app_version = get_app_version()
+        self.setWindowTitle(
+            f"ToolPy v{self.app_version}"
+        )
         self.resize(920, 700)
         self.setMinimumSize(760, 540)
 
@@ -111,7 +128,9 @@ class ToolPyWindow(QMainWindow):
         layout.setContentsMargins(12, 0, 12, 16)
         layout.setSpacing(8)
 
-        app_title = QLabel("ToolPy")
+        app_title = QLabel(
+            f"ToolPy v{self.app_version}"
+        )
         app_title.setObjectName("appTitle")
 
         self.nav_group = QButtonGroup(self)
