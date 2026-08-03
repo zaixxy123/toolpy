@@ -368,6 +368,7 @@ class ToolPyWindow(QMainWindow):
 
         self.floating_logo = FloatingLogoWindow(self)
         self._exiting = False
+        self._suppress_floating_logo = False
 
         self.document_dropdown = NoWheelComboBox()
 
@@ -1051,7 +1052,9 @@ class ToolPyWindow(QMainWindow):
             and not self._exiting
         ):
             self.hide()
-            self.floating_logo.show_with_fade()
+
+            if not self._suppress_floating_logo:
+                self.floating_logo.show_with_fade()
 
     def restore_from_floating(self):
         def restore_window():

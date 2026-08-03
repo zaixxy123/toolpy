@@ -11,6 +11,7 @@ analysis = Analysis(
     ],
     hiddenimports=[
         'updater_helper',
+        'win32timezone',
     ],
     hookspath=[],
     hooksconfig={},

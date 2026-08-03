@@ -616,7 +616,11 @@ class ExcelPage(QWidget):
                 "Cancel Selection"
             )
 
-        self.window().showMinimized()
+        window = self.window()
+        window._suppress_floating_logo = True
+        window.floating_logo.hide()
+        window.hide()
+
         self._selection_timer.start()
 
     def _poll_excel_selection(self):
@@ -658,9 +662,13 @@ class ExcelPage(QWidget):
         self._selection_last_address = None
 
         self._restore_select_button_text()
-        self.window().showNormal()
-        self.window().raise_()
-        self.window().activateWindow()
+
+        window = self.window()
+        window.floating_logo.hide()
+        window._suppress_floating_logo = False
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
 
     def _cancel_cell_selection(self):
         self._selection_timer.stop()
@@ -671,9 +679,13 @@ class ExcelPage(QWidget):
         self._selection_last_address = None
 
         self._restore_select_button_text()
-        self.window().showNormal()
-        self.window().raise_()
-        self.window().activateWindow()
+
+        window = self.window()
+        window.floating_logo.hide()
+        window._suppress_floating_logo = False
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
 
     def _restore_select_button_text(self):
         if not hasattr(
