@@ -1,5 +1,12 @@
 import sys
 
+from updater_helper import run_updater_mode
+
+
+if "--toolpy-updater" in sys.argv:
+    raise SystemExit(run_updater_mode())
+
+
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication

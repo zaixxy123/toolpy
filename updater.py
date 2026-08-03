@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,7 +26,7 @@ RELEASE_API = (
     f"{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 )
 EXE_ASSET_NAME = "ToolPy.exe"
-USER_AGENT = "ToolPy-AutoUpdater/1.0"
+USER_AGENT = "ToolPy-AutoUpdater/3.0"
 
 
 def _version_tuple(value):
@@ -48,8 +49,9 @@ def _version_tuple(value):
 
 def _current_version():
     try:
-        version_file = Path(resource_path("version.txt"))
-        return version_file.read_text(
+        return Path(
+            resource_path("version.txt")
+        ).read_text(
             encoding="utf-8"
         ).strip()
     except Exception:
@@ -58,10 +60,6 @@ def _current_version():
 
 def _is_frozen_exe():
     return bool(getattr(sys, "frozen", False))
-
-
-def _powershell_quote(value):
-    return str(value).replace("'", "''")
 
 
 class UpdateCheckWorker(QThread):
@@ -210,20 +208,17 @@ class DownloadWorker(QThread):
                                 min(percentage, 99)
                             )
 
-            if not destination.exists():
-                raise RuntimeError(
-                    "The downloaded update file was not created."
-                )
-
-            file_size = destination.stat().st_size
-
-            if file_size < 1024 * 1024:
+            if (
+                not destination.exists()
+                or destination.stat().st_size
+                < 1024 * 1024
+            ):
                 raise RuntimeError(
                     "The downloaded update is unexpectedly small."
                 )
 
-            with destination.open("rb") as downloaded_file:
-                if downloaded_file.read(2) != b"MZ":
+            with destination.open("rb") as file:
+                if file.read(2) != b"MZ":
                     raise RuntimeError(
                         "The downloaded file is not a valid Windows EXE."
                     )
@@ -234,7 +229,9 @@ class DownloadWorker(QThread):
         except Exception as error:
             if destination is not None:
                 try:
-                    destination.unlink(missing_ok=True)
+                    destination.unlink(
+                        missing_ok=True
+                    )
                 except Exception:
                     pass
 
@@ -363,164 +360,29 @@ class UpdateManager(QObject):
                     "The downloaded update file is missing."
                 )
 
-            update_dir = downloaded_exe.parent
-            script_file = (
-                update_dir
-                / f"install_{uuid.uuid4().hex}.ps1"
+            update_dir = (
+                Path(tempfile.gettempdir())
+                / "ToolPyUpdater"
             )
+            update_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            helper_exe = (
+                update_dir
+                / f"ToolPyUpdater_{uuid.uuid4().hex}.exe"
+            )
+
+            shutil.copy2(
+                current_exe,
+                helper_exe,
+            )
+
             log_file = (
                 update_dir
                 / "ToolPy_update_error.txt"
             )
-            backup_exe = current_exe.with_suffix(
-                current_exe.suffix + ".old"
-            )
-
-            current_pid = os.getpid()
-            working_directory = current_exe.parent
-
-            current_ps = _powershell_quote(current_exe)
-            update_ps = _powershell_quote(downloaded_exe)
-            backup_ps = _powershell_quote(backup_exe)
-            log_ps = _powershell_quote(log_file)
-            workdir_ps = _powershell_quote(
-                working_directory
-            )
-
-            script = f"""$ErrorActionPreference = 'Stop'
-
-$current = '{current_ps}'
-$update = '{update_ps}'
-$backup = '{backup_ps}'
-$log = '{log_ps}'
-$workingDirectory = '{workdir_ps}'
-$processId = {current_pid}
-
-function Restore-OldVersion {{
-    try {{
-        if (-not (Test-Path -LiteralPath $current) -and
-            (Test-Path -LiteralPath $backup)) {{
-            Move-Item -LiteralPath $backup `
-                -Destination $current -Force
-        }}
-    }} catch {{
-    }}
-}}
-
-try {{
-    for ($i = 0; $i -lt 120; $i++) {{
-        $process = Get-Process -Id $processId `
-            -ErrorAction SilentlyContinue
-
-        if ($null -eq $process) {{
-            break
-        }}
-
-        Start-Sleep -Milliseconds 500
-    }}
-
-    if (Get-Process -Id $processId `
-        -ErrorAction SilentlyContinue) {{
-        throw 'ToolPy did not close in time.'
-    }}
-
-    $installed = $false
-
-    for ($attempt = 1; $attempt -le 30; $attempt++) {{
-        try {{
-            if (Test-Path -LiteralPath $backup) {{
-                Remove-Item -LiteralPath $backup `
-                    -Force -ErrorAction SilentlyContinue
-            }}
-
-            if (Test-Path -LiteralPath $current) {{
-                Move-Item -LiteralPath $current `
-                    -Destination $backup -Force
-            }}
-
-            Copy-Item -LiteralPath $update `
-                -Destination $current -Force
-
-            if (-not (Test-Path -LiteralPath $current)) {{
-                throw 'The new ToolPy.exe was not created.'
-            }}
-
-            $newSize = (
-                Get-Item -LiteralPath $current
-            ).Length
-
-            if ($newSize -lt 1048576) {{
-                throw 'The new ToolPy.exe is unexpectedly small.'
-            }}
-
-            $installed = $true
-            break
-        }} catch {{
-            Restore-OldVersion
-            Start-Sleep -Seconds 1
-        }}
-    }}
-
-    if (-not $installed) {{
-        throw 'ToolPy could not replace the old EXE.'
-    }}
-
-    Start-Process -FilePath $current `
-        -WorkingDirectory $workingDirectory
-
-    Start-Sleep -Seconds 2
-
-    Remove-Item -LiteralPath $backup `
-        -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $update `
-        -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $log `
-        -Force -ErrorAction SilentlyContinue
-}} catch {{
-    Restore-OldVersion
-
-    $message = @(
-        'ToolPy update failed.'
-        ''
-        ('Error: ' + $_.Exception.Message)
-        ('Current EXE: ' + $current)
-        ('Downloaded EXE: ' + $update)
-    ) -join [Environment]::NewLine
-
-    Set-Content -LiteralPath $log `
-        -Value $message -Encoding UTF8
-
-    Start-Process -FilePath 'notepad.exe' `
-        -ArgumentList $log
-}} finally {{
-    Start-Sleep -Seconds 1
-    Remove-Item -LiteralPath $PSCommandPath `
-        -Force -ErrorAction SilentlyContinue
-}}
-"""
-
-            script_file.write_text(
-                script,
-                encoding="utf-8-sig",
-            )
-
-            powershell = (
-                Path(
-                    os.environ.get(
-                        "SystemRoot",
-                        r"C:\Windows",
-                    )
-                )
-                / "System32"
-                / "WindowsPowerShell"
-                / "v1.0"
-                / "powershell.exe"
-            )
-
-            if not powershell.exists():
-                raise RuntimeError(
-                    "Windows PowerShell was not found."
-                )
 
             creation_flags = (
                 getattr(
@@ -537,19 +399,22 @@ try {{
 
             subprocess.Popen(
                 [
-                    str(powershell),
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-WindowStyle",
-                    "Hidden",
-                    "-File",
-                    str(script_file),
+                    str(helper_exe),
+                    "--toolpy-updater",
+                    "--pid",
+                    str(os.getpid()),
+                    "--current",
+                    str(current_exe),
+                    "--update",
+                    str(downloaded_exe),
+                    "--helper",
+                    str(helper_exe),
+                    "--log",
+                    str(log_file),
                 ],
                 creationflags=creation_flags,
                 close_fds=True,
-                cwd=str(working_directory),
+                cwd=str(current_exe.parent),
             )
 
             QApplication.quit()

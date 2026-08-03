@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 
-a = Analysis(
+analysis = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
@@ -9,7 +9,9 @@ a = Analysis(
         ('assets', 'assets'),
         ('version.txt', '.'),
     ],
-    hiddenimports=[],
+    hiddenimports=[
+        'updater_helper',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -18,13 +20,13 @@ a = Analysis(
     optimize=0,
 )
 
-pyz = PYZ(a.pure)
+pyz = PYZ(analysis.pure)
 
 exe = EXE(
     pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
+    analysis.scripts,
+    analysis.binaries,
+    analysis.datas,
     [],
     name='ToolPy',
     debug=False,
