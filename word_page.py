@@ -1,8 +1,16 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPoint,
+    QPropertyAnimation,
+    QSettings,
+    Qt,
+)
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QComboBox,
     QFrame,
@@ -10,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -43,6 +52,306 @@ def get_app_version():
         return "0.0.0"
 
 
+class FloatingLogoWindow(QWidget):
+    SNAP_DISTANCE = 28
+
+    def __init__(self, main_window):
+        super().__init__()
+
+        self.main_window = main_window
+        self._drag_offset = QPoint()
+        self._dragging = False
+        self._moved_during_press = False
+
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground,
+            True,
+        )
+        self.setFixedSize(64, 64)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(
+            f"ToolPy v{self.main_window.app_version}\n"
+            "Click to restore"
+        )
+
+        self.logo_label = QLabel(self)
+        self.logo_label.setGeometry(4, 4, 56, 56)
+        self.logo_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+        self.logo_label.setStyleSheet(
+            "QLabel {"
+            "background-color: #1D1C26;"
+            "border: 2px solid #6C1ED2;"
+            "border-radius: 28px;"
+            "}"
+        )
+
+        icon = QIcon(resource_path("assets/logo.ico"))
+        self.logo_label.setPixmap(icon.pixmap(42, 42))
+        self.logo_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents,
+            True,
+        )
+
+        self.settings = QSettings("ToolPy", "ToolPy")
+
+        self.show_animation = QPropertyAnimation(
+            self,
+            b"windowOpacity",
+            self,
+        )
+        self.show_animation.setDuration(180)
+        self.show_animation.setEasingCurve(
+            QEasingCurve.Type.OutCubic
+        )
+
+        self.hide_animation = QPropertyAnimation(
+            self,
+            b"windowOpacity",
+            self,
+        )
+        self.hide_animation.setDuration(180)
+        self.hide_animation.setEasingCurve(
+            QEasingCurve.Type.OutCubic
+        )
+
+        self._restore_position()
+
+    def show_with_fade(self):
+        self.hide_animation.stop()
+        self.show_animation.stop()
+
+        self.setWindowOpacity(0.0)
+        self.show()
+        self.raise_()
+
+        self.show_animation.setStartValue(0.0)
+        self.show_animation.setEndValue(1.0)
+        self.show_animation.start()
+
+    def hide_with_fade(self, finished_callback=None):
+        self.show_animation.stop()
+        self.hide_animation.stop()
+
+        try:
+            self.hide_animation.finished.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+
+        self.hide_animation.setStartValue(
+            self.windowOpacity()
+        )
+        self.hide_animation.setEndValue(0.0)
+
+        def finish():
+            try:
+                self.hide_animation.finished.disconnect(
+                    finish
+                )
+            except (RuntimeError, TypeError):
+                pass
+
+            self.hide()
+            self.setWindowOpacity(1.0)
+
+            if finished_callback is not None:
+                finished_callback()
+
+        self.hide_animation.finished.connect(finish)
+        self.hide_animation.start()
+
+    def _restore_position(self):
+        saved_position = self.settings.value(
+            "floating_logo_position"
+        )
+
+        if isinstance(saved_position, QPoint):
+            self.move(self._bounded_position(saved_position))
+            return
+
+        screen = QApplication.primaryScreen()
+
+        if screen is None:
+            self.move(30, 30)
+            return
+
+        area = screen.availableGeometry()
+        self.move(
+            area.right() - self.width() - 24,
+            area.bottom() - self.height() - 24,
+        )
+
+    def _screen_geometry_for_point(self, point):
+        screen = QApplication.screenAt(point)
+
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        return (
+            screen.availableGeometry()
+            if screen is not None
+            else None
+        )
+
+    def _bounded_position(self, position):
+        center = position + QPoint(
+            self.width() // 2,
+            self.height() // 2,
+        )
+        area = self._screen_geometry_for_point(center)
+
+        if area is None:
+            return position
+
+        x = max(
+            area.left(),
+            min(
+                position.x(),
+                area.right() - self.width() + 1,
+            ),
+        )
+        y = max(
+            area.top(),
+            min(
+                position.y(),
+                area.bottom() - self.height() + 1,
+            ),
+        )
+
+        return QPoint(x, y)
+
+    def _snap_to_edge(self):
+        center = self.pos() + QPoint(
+            self.width() // 2,
+            self.height() // 2,
+        )
+        area = self._screen_geometry_for_point(center)
+
+        if area is None:
+            return
+
+        current = self._bounded_position(self.pos())
+        left_x = area.left()
+        right_x = area.right() - self.width() + 1
+        top_y = area.top()
+        bottom_y = area.bottom() - self.height() + 1
+
+        distances = {
+            "left": abs(current.x() - left_x),
+            "right": abs(current.x() - right_x),
+            "top": abs(current.y() - top_y),
+            "bottom": abs(current.y() - bottom_y),
+        }
+
+        nearest_edge = min(
+            distances,
+            key=distances.get,
+        )
+
+        if distances[nearest_edge] <= self.SNAP_DISTANCE:
+            if nearest_edge == "left":
+                current.setX(left_x)
+            elif nearest_edge == "right":
+                current.setX(right_x)
+            elif nearest_edge == "top":
+                current.setY(top_y)
+            else:
+                current.setY(bottom_y)
+
+        self.move(current)
+
+    def _save_position(self):
+        self.settings.setValue(
+            "floating_logo_position",
+            self.pos(),
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._moved_during_press = False
+            self._drag_offset = (
+                event.globalPosition().toPoint()
+                - self.frameGeometry().topLeft()
+            )
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.RightButton:
+            self._show_context_menu(
+                event.globalPosition().toPoint()
+            )
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._dragging
+            and event.buttons()
+            & Qt.MouseButton.LeftButton
+        ):
+            new_position = (
+                event.globalPosition().toPoint()
+                - self._drag_offset
+            )
+
+            if (
+                new_position - self.pos()
+            ).manhattanLength() > 2:
+                self._moved_during_press = True
+
+            self.move(
+                self._bounded_position(new_position)
+            )
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            was_dragging = self._dragging
+            self._dragging = False
+
+            if was_dragging:
+                self._snap_to_edge()
+                self._save_position()
+
+                if not self._moved_during_press:
+                    self.main_window.restore_from_floating()
+
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+
+    def _show_context_menu(self, global_position):
+        menu = QMenu(self)
+
+        open_action = QAction("Open ToolPy", self)
+        open_action.triggered.connect(
+            self.main_window.restore_from_floating
+        )
+
+        exit_action = QAction("Exit ToolPy", self)
+        exit_action.triggered.connect(
+            self.main_window.exit_toolpy
+        )
+
+        menu.addAction(open_action)
+        menu.addSeparator()
+        menu.addAction(exit_action)
+        menu.exec(global_position)
+
+
 class ToolPyWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -56,6 +365,9 @@ class ToolPyWindow(QMainWindow):
         )
         self.resize(920, 700)
         self.setMinimumSize(760, 540)
+
+        self.floating_logo = FloatingLogoWindow(self)
+        self._exiting = False
 
         self.document_dropdown = NoWheelComboBox()
 
@@ -729,8 +1041,54 @@ class ToolPyWindow(QMainWindow):
             resize_all,
         )
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+
+        if (
+            event.type()
+            == QEvent.Type.WindowStateChange
+            and self.isMinimized()
+            and not self._exiting
+        ):
+            self.hide()
+            self.floating_logo.show_with_fade()
+
+    def restore_from_floating(self):
+        def restore_window():
+            self.showNormal()
+            self.setWindowOpacity(0.0)
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+            self._restore_animation = QPropertyAnimation(
+                self,
+                b"windowOpacity",
+                self,
+            )
+            self._restore_animation.setDuration(180)
+            self._restore_animation.setStartValue(0.0)
+            self._restore_animation.setEndValue(1.0)
+            self._restore_animation.setEasingCurve(
+                QEasingCurve.Type.OutCubic
+            )
+            self._restore_animation.start()
+
+        self.floating_logo.hide_with_fade(
+            restore_window
+        )
+
+    def exit_toolpy(self):
+        self._exiting = True
+        self.floating_logo.hide()
+        self.close()
+        QApplication.instance().quit()
+
     def closeEvent(self, event):
+        self._exiting = True
+        self.floating_logo.hide()
         self.global_replacement_hotkeys.deactivate()
         self.replacement_queue_manager.clear()
         self.capture_manager.cancel()
         super().closeEvent(event)
+

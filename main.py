@@ -12,6 +12,7 @@ from word_page import ToolPyWindow
 
 def main():
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(
         QIcon(resource_path("assets/logo.ico"))
     )
