@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -11,9 +11,11 @@ from PySide6.QtWidgets import (
 )
 
 from excel_tools import (
+    activate_excel_selection_target,
     apply_date_format,
     apply_quick_calculate,
     apply_text_cleanup,
+    read_active_excel_cell,
     refresh_open_workbooks,
     refresh_worksheets,
 )
@@ -26,6 +28,17 @@ class ExcelPage(QWidget):
 
         self.workbook_dropdown = NoWheelComboBox()
         self.worksheet_dropdown = NoWheelComboBox()
+
+        self._selection_timer = QTimer(self)
+        self._selection_timer.setInterval(150)
+        self._selection_timer.timeout.connect(
+            self._poll_excel_selection
+        )
+        self._selection_context = None
+        self._selection_target_input = None
+        self._selection_range_mode = False
+        self._selection_start_address = None
+        self._selection_last_address = None
 
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -178,6 +191,31 @@ class ExcelPage(QWidget):
         self.start_cell_input.setMinimumHeight(42)
         self.start_cell_input.setMaxLength(8)
 
+        date_start_row = QHBoxLayout()
+        date_start_row.setSpacing(10)
+
+        date_use_cell_button = QPushButton("Select Cell")
+        date_use_cell_button.setObjectName("secondaryButton")
+        date_use_cell_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        date_use_cell_button.setMinimumHeight(42)
+        date_use_cell_button.setFixedWidth(100)
+        date_use_cell_button.clicked.connect(
+            lambda: self._begin_cell_selection(
+                self.start_cell_input,
+                range_mode=False,
+            )
+        )
+
+        date_start_row.addWidget(
+            self.start_cell_input,
+            1,
+        )
+        date_start_row.addWidget(
+            date_use_cell_button
+        )
+
         order_label = QLabel("Date order")
         order_label.setObjectName("cardText")
 
@@ -233,7 +271,7 @@ class ExcelPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(text)
         layout.addWidget(start_cell_label)
-        layout.addWidget(self.start_cell_input)
+        layout.addLayout(date_start_row)
         layout.addWidget(order_label)
         layout.addWidget(self.date_order_dropdown)
         layout.addWidget(output_label)
@@ -275,6 +313,31 @@ class ExcelPage(QWidget):
         self.text_start_cell_input.setPlaceholderText("Example: A2")
         self.text_start_cell_input.setMinimumHeight(42)
         self.text_start_cell_input.setMaxLength(8)
+
+        text_start_row = QHBoxLayout()
+        text_start_row.setSpacing(10)
+
+        text_use_cell_button = QPushButton("Select Cell")
+        text_use_cell_button.setObjectName("secondaryButton")
+        text_use_cell_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        text_use_cell_button.setMinimumHeight(42)
+        text_use_cell_button.setFixedWidth(100)
+        text_use_cell_button.clicked.connect(
+            lambda: self._begin_cell_selection(
+                self.text_start_cell_input,
+                range_mode=False,
+            )
+        )
+
+        text_start_row.addWidget(
+            self.text_start_cell_input,
+            1,
+        )
+        text_start_row.addWidget(
+            text_use_cell_button
+        )
 
         action_label = QLabel("Action")
         action_label.setObjectName("cardText")
@@ -318,7 +381,7 @@ class ExcelPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(text)
         layout.addWidget(start_cell_label)
-        layout.addWidget(self.text_start_cell_input)
+        layout.addLayout(text_start_row)
         layout.addWidget(action_label)
         layout.addWidget(self.text_action_dropdown)
         layout.addWidget(alignment_label)
@@ -336,7 +399,7 @@ class ExcelPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card.setMaximumWidth(700)
-        card.setMinimumHeight(500)
+        card.setMinimumHeight(540)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -348,7 +411,7 @@ class ExcelPage(QWidget):
         text = QLabel(
             "Calculate numbers downward or to the right. "
             "Auto mode stops at the first blank cell. "
-            "Range mode uses an exact start and end cell."
+            "Range mode uses an exact selected range."
         )
         text.setObjectName("cardText")
         text.setWordWrap(True)
@@ -390,6 +453,21 @@ class ExcelPage(QWidget):
         self.calculate_end_input.setMaxLength(8)
         self.calculate_end_input.setEnabled(False)
         self.calculate_end_label.setEnabled(False)
+
+        self.calculate_select_cells_button = QPushButton(
+            "Select Cell"
+        )
+        self.calculate_select_cells_button.setObjectName(
+            "secondaryButton"
+        )
+        self.calculate_select_cells_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+        self.calculate_select_cells_button.setMinimumHeight(42)
+        self.calculate_select_cells_button.setFixedWidth(135)
+        self.calculate_select_cells_button.clicked.connect(
+            self._select_quick_calculate_cells
+        )
 
         direction_label = QLabel("Direction")
         direction_label.setObjectName("cardText")
@@ -452,6 +530,11 @@ class ExcelPage(QWidget):
         layout.addWidget(self.calculate_end_label)
         layout.addWidget(self.calculate_end_input)
 
+        layout.addWidget(
+            self.calculate_select_cells_button,
+            alignment=Qt.AlignmentFlag.AlignLeft,
+        )
+
         layout.addWidget(direction_label)
         layout.addWidget(self.calculate_direction_dropdown)
 
@@ -470,6 +553,9 @@ class ExcelPage(QWidget):
         return card
 
     def _quick_calculate_mode_changed(self, mode):
+        if self._selection_timer.isActive():
+            self._cancel_cell_selection()
+
         range_enabled = mode == "Range"
 
         self.calculate_end_label.setEnabled(
@@ -478,6 +564,135 @@ class ExcelPage(QWidget):
         self.calculate_end_input.setEnabled(
             range_enabled
         )
+
+        self._restore_select_button_text()
+
+    def _select_quick_calculate_cells(self):
+        range_mode = (
+            self.calculate_mode_dropdown.currentText()
+            == "Range"
+        )
+
+        self._begin_cell_selection(
+            self.calculate_start_input,
+            range_mode=range_mode,
+        )
+
+    def _begin_cell_selection(
+        self,
+        target_input,
+        range_mode=False,
+    ):
+        if self._selection_timer.isActive():
+            self._cancel_cell_selection()
+            return
+
+        context = activate_excel_selection_target(
+            self,
+            self.workbook_dropdown,
+            self.worksheet_dropdown,
+        )
+
+        if context is None:
+            return
+
+        self._selection_context = context
+        self._selection_target_input = target_input
+        self._selection_range_mode = range_mode
+        self._selection_start_address = None
+        self._selection_last_address = context.get(
+            "initial_address"
+        )
+
+        if range_mode:
+            self.calculate_select_cells_button.setText(
+                "Cancel Selection"
+            )
+        elif hasattr(
+            self,
+            "calculate_select_cells_button",
+        ):
+            self.calculate_select_cells_button.setText(
+                "Cancel Selection"
+            )
+
+        self.window().showMinimized()
+        self._selection_timer.start()
+
+    def _poll_excel_selection(self):
+        if self._selection_context is None:
+            self._cancel_cell_selection()
+            return
+
+        address = read_active_excel_cell(
+            self._selection_context
+        )
+
+        if address is None:
+            return
+
+        if address == self._selection_last_address:
+            return
+
+        self._selection_last_address = address
+
+        if not self._selection_range_mode:
+            self._selection_target_input.setText(address)
+            self._finish_cell_selection()
+            return
+
+        if self._selection_start_address is None:
+            self._selection_start_address = address
+            self.calculate_start_input.setText(address)
+            return
+
+        self.calculate_end_input.setText(address)
+        self._finish_cell_selection()
+
+    def _finish_cell_selection(self):
+        self._selection_timer.stop()
+        self._selection_context = None
+        self._selection_target_input = None
+        self._selection_range_mode = False
+        self._selection_start_address = None
+        self._selection_last_address = None
+
+        self._restore_select_button_text()
+        self.window().showNormal()
+        self.window().raise_()
+        self.window().activateWindow()
+
+    def _cancel_cell_selection(self):
+        self._selection_timer.stop()
+        self._selection_context = None
+        self._selection_target_input = None
+        self._selection_range_mode = False
+        self._selection_start_address = None
+        self._selection_last_address = None
+
+        self._restore_select_button_text()
+        self.window().showNormal()
+        self.window().raise_()
+        self.window().activateWindow()
+
+    def _restore_select_button_text(self):
+        if not hasattr(
+            self,
+            "calculate_select_cells_button",
+        ):
+            return
+
+        if (
+            self.calculate_mode_dropdown.currentText()
+            == "Range"
+        ):
+            self.calculate_select_cells_button.setText(
+                "Select Cells"
+            )
+        else:
+            self.calculate_select_cells_button.setText(
+                "Select Cell"
+            )
 
     def _apply_quick_calculate(self):
         apply_quick_calculate(

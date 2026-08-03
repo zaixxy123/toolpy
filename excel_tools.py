@@ -165,6 +165,161 @@ def _apply_alignment(cell, alignment):
     cell.HorizontalAlignment = ALIGNMENTS[alignment]
 
 
+
+
+def _column_number_to_letters(column_number):
+    letters = ""
+
+    while column_number > 0:
+        column_number, remainder = divmod(
+            column_number - 1,
+            26,
+        )
+        letters = chr(65 + remainder) + letters
+
+    return letters
+
+
+def _cell_address(row, column):
+    return (
+        f"{_column_number_to_letters(column)}"
+        f"{row}"
+    )
+
+
+def activate_excel_selection_target(
+    parent,
+    workbook_dropdown,
+    worksheet_dropdown,
+):
+    workbook_name = workbook_dropdown.currentData()
+    worksheet_name = worksheet_dropdown.currentData()
+
+    if not workbook_name:
+        QMessageBox.warning(
+            parent,
+            "No Workbook Selected",
+            "Choose an open Excel workbook first.",
+        )
+        return None
+
+    if not worksheet_name:
+        QMessageBox.warning(
+            parent,
+            "No Worksheet Selected",
+            "Choose a worksheet first.",
+        )
+        return None
+
+    try:
+        excel = _get_excel()
+
+        if excel.Workbooks.Count == 0:
+            QMessageBox.warning(
+                parent,
+                "No Active Excel Workbook",
+                "No active Excel workbook found.\n\n"
+                "Please open an Excel workbook first.",
+            )
+            return None
+
+        workbook = _find_workbook(
+            excel,
+            workbook_name,
+        )
+
+        if workbook is None:
+            QMessageBox.warning(
+                parent,
+                "Workbook Not Found",
+                "The workbook selected in ToolPy "
+                "is no longer open.",
+            )
+            return None
+
+        worksheet = _find_worksheet(
+            workbook,
+            worksheet_name,
+        )
+
+        if worksheet is None:
+            QMessageBox.warning(
+                parent,
+                "Worksheet Not Found",
+                "The worksheet selected in ToolPy "
+                "could not be found.",
+            )
+            return None
+
+        workbook.Activate()
+        worksheet.Activate()
+        excel.Visible = True
+
+        active_cell = excel.ActiveCell
+
+        initial_address = None
+
+        if active_cell is not None:
+            initial_address = _cell_address(
+                int(active_cell.Row),
+                int(active_cell.Column),
+            )
+
+        return {
+            "excel": excel,
+            "workbook_name": workbook_name,
+            "worksheet_name": worksheet_name,
+            "initial_address": initial_address,
+        }
+
+    except Exception as error:
+        QMessageBox.critical(
+            parent,
+            "Cell Selection Error",
+            "ToolPy could not start Excel cell selection.\n\n"
+            f"Error:\n{error}",
+        )
+        return None
+
+
+def read_active_excel_cell(
+    selection_context,
+):
+    try:
+        excel = selection_context["excel"]
+
+        active_workbook = excel.ActiveWorkbook
+        active_sheet = excel.ActiveSheet
+        active_cell = excel.ActiveCell
+
+        if (
+            active_workbook is None
+            or active_sheet is None
+            or active_cell is None
+        ):
+            return None
+
+        if (
+            active_workbook.Name
+            != selection_context["workbook_name"]
+        ):
+            return None
+
+        if (
+            active_sheet.Name
+            != selection_context["worksheet_name"]
+        ):
+            return None
+
+        return _cell_address(
+            int(active_cell.Row),
+            int(active_cell.Column),
+        )
+
+    except Exception:
+        return None
+
+
 def refresh_open_workbooks(
     workbook_dropdown,
     worksheet_dropdown,
