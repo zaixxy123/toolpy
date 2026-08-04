@@ -405,7 +405,7 @@ class ExcelPage(QWidget):
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(12)
 
-        title = QLabel("Quick Calculate")
+        title = QLabel("Column Calculator")
         title.setObjectName("cardTitle")
 
         text = QLabel(
@@ -488,6 +488,9 @@ class ExcelPage(QWidget):
         self.calculate_operation_dropdown.addItems(
             [
                 "Sum",
+                "Subtract",
+                "Multiply",
+                "Divide",
                 "Average",
                 "Count",
             ]

@@ -664,6 +664,32 @@ def apply_quick_calculate(
             if operation == "Sum":
                 result = sum(numeric_values)
 
+            elif operation == "Subtract":
+                result = numeric_values[0]
+
+                for value in numeric_values[1:]:
+                    result -= value
+
+            elif operation == "Multiply":
+                result = 1.0
+
+                for value in numeric_values:
+                    result *= value
+
+            elif operation == "Divide":
+                result = numeric_values[0]
+
+                for value in numeric_values[1:]:
+                    if value == 0:
+                        QMessageBox.warning(
+                            parent,
+                            "Divide by Zero",
+                            "Cannot divide by zero.",
+                        )
+                        return
+
+                    result /= value
+
             elif operation == "Average":
                 result = sum(numeric_values) / len(numeric_values)
 
@@ -671,7 +697,8 @@ def apply_quick_calculate(
                 QMessageBox.warning(
                     parent,
                     "Invalid Operation",
-                    "Choose Sum, Average, or Count.",
+                    "Choose Sum, Subtract, Multiply, Divide, "
+                    "Average, or Count.",
                 )
                 return
 
@@ -681,7 +708,7 @@ def apply_quick_calculate(
     except Exception as error:
         QMessageBox.critical(
             parent,
-            "Quick Calculate Error",
+            "Column Calculator Error",
             "ToolPy could not calculate the selected cells.\n\n"
             f"Error:\n{error}",
         )

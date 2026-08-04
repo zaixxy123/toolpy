@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+
+# Temporary installer/updater files
+payload/
+*.old
+*.bak
+*.log
+
+# Editors and Windows
+.vscode/
+Thumbs.db
+Desktop.ini
+
+# Local environment
+.env
