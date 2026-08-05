@@ -137,6 +137,7 @@ QMessageBox QPushButton {
     padding: 8px 14px;
 }
 
+QSpinBox,
 QDoubleSpinBox {
     background-color: #18181F;
     color: #FFFFFF;
@@ -146,6 +147,8 @@ QDoubleSpinBox {
     min-width: 105px;
 }
 
+QSpinBox:hover,
+QSpinBox:focus,
 QDoubleSpinBox:hover,
 QDoubleSpinBox:focus {
     border: 1px solid #6C1ED2;

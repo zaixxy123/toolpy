@@ -27,15 +27,20 @@ def _document_key(document):
         return f"UNSAVED::{document.Name}"
 
 
-def _find_selected_document(dropdown, parent):
+def _find_selected_document(
+    dropdown,
+    parent,
+    show_warning=True,
+):
     selected_key = dropdown.currentData() or ""
 
     if not selected_key:
-        QMessageBox.warning(
-            parent,
-            "No Document Selected",
-            "Choose an open Word document first.",
-        )
+        if show_warning:
+            QMessageBox.warning(
+                parent,
+                "No Document Selected",
+                "Choose an open Word document first.",
+            )
         return None, None
 
     try:
@@ -47,21 +52,23 @@ def _find_selected_document(dropdown, parent):
             if _document_key(document) == selected_key:
                 return word, document
 
-        QMessageBox.warning(
-            parent,
-            "Document Not Available",
-            "That document is no longer open.\n\n"
-            "Click Refresh and choose another document.",
-        )
+        if show_warning:
+            QMessageBox.warning(
+                parent,
+                "Document Not Available",
+                "That document is no longer open.\n\n"
+                "Click Refresh and choose another document.",
+            )
         return None, None
 
     except Exception as error:
-        QMessageBox.critical(
-            parent,
-            "Word Error",
-            "Microsoft Word could not be accessed.\n\n"
-            f"Error:\n{error}",
-        )
+        if show_warning:
+            QMessageBox.critical(
+                parent,
+                "Word Error",
+                "Microsoft Word could not be accessed.\n\n"
+                f"Error:\n{error}",
+            )
         return None, None
 
 
@@ -223,14 +230,34 @@ def _remove_page_fields(footer):
             field.Delete()
 
 
-def _add_centered_page_number(footer):
+def _position_page_fields(footer, horizontal_offset_points):
+    for index in range(1, footer.Range.Fields.Count + 1):
+        field = footer.Range.Fields(index)
+
+        if field.Type != WD_FIELD_PAGE:
+            continue
+
+        number_format = field.Result.ParagraphFormat
+        number_format.Alignment = WD_ALIGN_PARAGRAPH_CENTER
+        number_format.LeftIndent = horizontal_offset_points
+        number_format.RightIndent = -horizontal_offset_points
+
+
+def _add_centered_page_number(footer, horizontal_offset_points):
     footer.PageNumbers.Add(
         PageNumberAlignment=WD_ALIGN_PARAGRAPH_CENTER,
         FirstPage=True,
     )
+    _position_page_fields(footer, horizontal_offset_points)
 
 
-def add_page_numbers(dropdown, parent, start_page):
+def add_page_numbers(
+    dropdown,
+    parent,
+    start_page,
+    horizontal_offset_cm=0.0,
+    footer_distance_cm=1.27,
+):
     word, document = _find_selected_document(dropdown, parent)
 
     if document is None:
@@ -239,6 +266,10 @@ def add_page_numbers(dropdown, parent, start_page):
     try:
         document.Activate()
         page_count = document.ComputeStatistics(WD_STATISTIC_PAGES)
+        horizontal_offset_points = (
+            horizontal_offset_cm * POINTS_PER_CM
+        )
+        footer_distance_points = footer_distance_cm * POINTS_PER_CM
 
         if start_page > page_count:
             QMessageBox.warning(
@@ -298,6 +329,7 @@ def add_page_numbers(dropdown, parent, start_page):
         ):
             section = document.Sections(section_index)
             is_start_section = section_index == start_section_index
+            section.PageSetup.FooterDistance = footer_distance_points
 
             for footer_type in footer_types:
                 footer = section.Footers(footer_type)
@@ -306,7 +338,10 @@ def add_page_numbers(dropdown, parent, start_page):
                     footer.LinkToPrevious = False
 
                 if is_start_section or not footer.LinkToPrevious:
-                    _add_centered_page_number(footer)
+                    _add_centered_page_number(
+                        footer,
+                        horizontal_offset_points,
+                    )
 
                 footer.PageNumbers.RestartNumberingAtSection = (
                     is_start_section
@@ -334,3 +369,71 @@ def add_page_numbers(dropdown, parent, start_page):
             "Could not add page numbers to the document.\n\n"
             f"Error:\n{error}",
         )
+
+
+def update_page_number_position(
+    dropdown,
+    parent,
+    start_page,
+    horizontal_offset_cm,
+    footer_distance_cm,
+):
+    word, document = _find_selected_document(
+        dropdown,
+        parent,
+        show_warning=False,
+    )
+
+    if document is None:
+        return
+
+    try:
+        page_count = document.ComputeStatistics(WD_STATISTIC_PAGES)
+
+        if start_page > page_count:
+            return
+
+        page_range = document.GoTo(
+            What=WD_GOTO_PAGE,
+            Which=WD_GOTO_ABSOLUTE,
+            Count=start_page,
+        )
+        current_section = page_range.Sections(1)
+        start_section_index = None
+
+        for index in range(1, document.Sections.Count + 1):
+            section = document.Sections(index)
+
+            if section.Range.Start == current_section.Range.Start:
+                start_section_index = index
+                break
+
+        if start_section_index is None:
+            return
+
+        horizontal_offset_points = (
+            horizontal_offset_cm * POINTS_PER_CM
+        )
+        footer_distance_points = footer_distance_cm * POINTS_PER_CM
+        footer_types = (
+            WD_HEADER_FOOTER_PRIMARY,
+            WD_HEADER_FOOTER_FIRST_PAGE,
+            WD_HEADER_FOOTER_EVEN_PAGES,
+        )
+
+        for section_index in range(
+            start_section_index,
+            document.Sections.Count + 1,
+        ):
+            section = document.Sections(section_index)
+            section.PageSetup.FooterDistance = footer_distance_points
+
+            for footer_type in footer_types:
+                _position_page_fields(
+                    section.Footers(footer_type),
+                    horizontal_offset_points,
+                )
+
+    except Exception:
+        # Live position previews should never interrupt typing with dialogs.
+        return

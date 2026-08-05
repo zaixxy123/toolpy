@@ -10,9 +10,11 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QButtonGroup,
     QComboBox,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -39,6 +41,7 @@ from word_tools import (
     refresh_open_documents,
     resize_images,
     set_all_images_behind_text,
+    update_page_number_position,
 )
 
 
@@ -696,7 +699,7 @@ class ToolPyWindow(QMainWindow):
         card = QFrame()
         card.setObjectName("card")
         card.setMaximumWidth(700)
-        card.setMinimumHeight(225)
+        card.setMinimumHeight(350)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -712,14 +715,147 @@ class ToolPyWindow(QMainWindow):
         text.setObjectName("cardText")
         text.setWordWrap(True)
 
-        start_page_label = QLabel("Start on document page")
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(12)
+
+        start_page_column = QVBoxLayout()
+        start_page_column.setSpacing(6)
+
+        start_page_label = QLabel("Start page")
         start_page_label.setObjectName("cardText")
 
         self.page_number_start_input = QSpinBox()
         self.page_number_start_input.setRange(1, 9999)
         self.page_number_start_input.setValue(1)
         self.page_number_start_input.setMinimumHeight(42)
-        self.page_number_start_input.setMaximumWidth(180)
+        self.page_number_start_input.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.NoButtons
+        )
+
+        start_page_input_row = QHBoxLayout()
+        start_page_input_row.setSpacing(6)
+
+        previous_page_button = QPushButton("−")
+        previous_page_button.setObjectName("secondaryButton")
+        previous_page_button.setToolTip("Previous starting page")
+        previous_page_button.setFixedSize(42, 42)
+        previous_page_button.clicked.connect(
+            self.page_number_start_input.stepDown
+        )
+
+        next_page_button = QPushButton("+")
+        next_page_button.setObjectName("secondaryButton")
+        next_page_button.setToolTip("Next starting page")
+        next_page_button.setFixedSize(42, 42)
+        next_page_button.clicked.connect(
+            self.page_number_start_input.stepUp
+        )
+
+        start_page_input_row.addWidget(previous_page_button)
+        start_page_input_row.addWidget(
+            self.page_number_start_input,
+            1,
+        )
+        start_page_input_row.addWidget(next_page_button)
+
+        start_page_column.addWidget(start_page_label)
+        start_page_column.addLayout(start_page_input_row)
+
+        horizontal_column = QVBoxLayout()
+        horizontal_column.setSpacing(6)
+
+        horizontal_label = QLabel("Horizontal offset")
+        horizontal_label.setObjectName("cardText")
+
+        self.page_number_horizontal_input = QDoubleSpinBox()
+        self.page_number_horizontal_input.setRange(-15.0, 15.0)
+        self.page_number_horizontal_input.setDecimals(2)
+        self.page_number_horizontal_input.setSingleStep(0.1)
+        self.page_number_horizontal_input.setValue(0.0)
+        self.page_number_horizontal_input.setSuffix(" cm")
+        self.page_number_horizontal_input.setMinimumHeight(42)
+        self.page_number_horizontal_input.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.NoButtons
+        )
+        self.page_number_horizontal_input.valueChanged.connect(
+            lambda _value: self._update_page_number_position()
+        )
+
+        horizontal_input_row = QHBoxLayout()
+        horizontal_input_row.setSpacing(6)
+
+        move_left_button = QPushButton("◀")
+        move_left_button.setObjectName("secondaryButton")
+        move_left_button.setToolTip("Move left by 0.1 cm")
+        move_left_button.setFixedSize(42, 42)
+        move_left_button.clicked.connect(
+            self.page_number_horizontal_input.stepDown
+        )
+
+        move_right_button = QPushButton("▶")
+        move_right_button.setObjectName("secondaryButton")
+        move_right_button.setToolTip("Move right by 0.1 cm")
+        move_right_button.setFixedSize(42, 42)
+        move_right_button.clicked.connect(
+            self.page_number_horizontal_input.stepUp
+        )
+
+        horizontal_input_row.addWidget(move_left_button)
+        horizontal_input_row.addWidget(
+            self.page_number_horizontal_input,
+            1,
+        )
+        horizontal_input_row.addWidget(move_right_button)
+
+        horizontal_column.addWidget(horizontal_label)
+        horizontal_column.addLayout(horizontal_input_row)
+
+        footer_label = QLabel("Footer from bottom")
+        footer_label.setObjectName("cardText")
+
+        self.page_number_footer_input = QDoubleSpinBox()
+        self.page_number_footer_input.setRange(0.0, 10.0)
+        self.page_number_footer_input.setDecimals(2)
+        self.page_number_footer_input.setSingleStep(0.1)
+        self.page_number_footer_input.setValue(1.27)
+        self.page_number_footer_input.setSuffix(" cm")
+        self.page_number_footer_input.setMinimumHeight(42)
+        self.page_number_footer_input.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.NoButtons
+        )
+        self.page_number_footer_input.valueChanged.connect(
+            lambda _value: self._update_page_number_position()
+        )
+
+        footer_input_row = QHBoxLayout()
+        footer_input_row.setSpacing(6)
+
+        move_down_button = QPushButton("▼")
+        move_down_button.setObjectName("secondaryButton")
+        move_down_button.setToolTip("Move down by 0.1 cm")
+        move_down_button.setFixedSize(42, 42)
+        move_down_button.clicked.connect(
+            self.page_number_footer_input.stepDown
+        )
+
+        move_up_button = QPushButton("▲")
+        move_up_button.setObjectName("secondaryButton")
+        move_up_button.setToolTip("Move up by 0.1 cm")
+        move_up_button.setFixedSize(42, 42)
+        move_up_button.clicked.connect(
+            self.page_number_footer_input.stepUp
+        )
+
+        footer_input_row.addWidget(move_down_button)
+        footer_input_row.addWidget(self.page_number_footer_input, 1)
+        footer_input_row.addWidget(move_up_button)
+
+        horizontal_column.addSpacing(8)
+        horizontal_column.addWidget(footer_label)
+        horizontal_column.addLayout(footer_input_row)
+
+        controls_row.addLayout(start_page_column, 1)
+        controls_row.addLayout(horizontal_column, 2)
 
         apply_button = QPushButton("Apply")
         apply_button.setObjectName("actionButton")
@@ -730,13 +866,14 @@ class ToolPyWindow(QMainWindow):
                 self.document_dropdown,
                 self,
                 self.page_number_start_input.value(),
+                self.page_number_horizontal_input.value(),
+                self.page_number_footer_input.value(),
             )
         )
 
         layout.addWidget(title)
         layout.addWidget(text)
-        layout.addWidget(start_page_label)
-        layout.addWidget(self.page_number_start_input)
+        layout.addLayout(controls_row)
         layout.addSpacing(8)
         layout.addWidget(
             apply_button,
@@ -1096,6 +1233,15 @@ class ToolPyWindow(QMainWindow):
             width_cm,
             height_cm,
             resize_all,
+        )
+
+    def _update_page_number_position(self):
+        update_page_number_position(
+            self.document_dropdown,
+            self,
+            self.page_number_start_input.value(),
+            self.page_number_horizontal_input.value(),
+            self.page_number_footer_input.value(),
         )
 
     def changeEvent(self, event):
