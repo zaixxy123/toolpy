@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -34,6 +35,7 @@ from no_wheel_combo import NoWheelComboBox
 from excel_page import ExcelPage
 from utils import resource_path
 from word_tools import (
+    add_page_numbers,
     refresh_open_documents,
     resize_images,
     set_all_images_behind_text,
@@ -509,6 +511,7 @@ class ToolPyWindow(QMainWindow):
         layout.addWidget(self._create_document_card())
         layout.addWidget(self._create_behind_text_card())
         layout.addWidget(self._create_resize_card())
+        layout.addWidget(self._create_page_numbers_card())
         layout.addWidget(self._create_image_capture_card())
         layout.addWidget(self._create_replacement_queue_card())
         layout.addStretch()
@@ -681,6 +684,59 @@ class ToolPyWindow(QMainWindow):
         layout.addWidget(mode_label)
         layout.addWidget(self.resize_mode)
         layout.addLayout(size_row)
+        layout.addSpacing(8)
+        layout.addWidget(
+            apply_button,
+            alignment=Qt.AlignmentFlag.AlignLeft,
+        )
+
+        return card
+
+    def _create_page_numbers_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        card.setMaximumWidth(700)
+        card.setMinimumHeight(225)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Add page numbers")
+        title.setObjectName("cardTitle")
+
+        text = QLabel(
+            "Add centered footer numbers starting on a specific page. "
+            "The chosen page becomes 1, followed by 2, 3, and so on."
+        )
+        text.setObjectName("cardText")
+        text.setWordWrap(True)
+
+        start_page_label = QLabel("Start on document page")
+        start_page_label.setObjectName("cardText")
+
+        self.page_number_start_input = QSpinBox()
+        self.page_number_start_input.setRange(1, 9999)
+        self.page_number_start_input.setValue(1)
+        self.page_number_start_input.setMinimumHeight(42)
+        self.page_number_start_input.setMaximumWidth(180)
+
+        apply_button = QPushButton("Apply")
+        apply_button.setObjectName("actionButton")
+        apply_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        apply_button.setFixedSize(135, 44)
+        apply_button.clicked.connect(
+            lambda: add_page_numbers(
+                self.document_dropdown,
+                self,
+                self.page_number_start_input.value(),
+            )
+        )
+
+        layout.addWidget(title)
+        layout.addWidget(text)
+        layout.addWidget(start_page_label)
+        layout.addWidget(self.page_number_start_input)
         layout.addSpacing(8)
         layout.addWidget(
             apply_button,
@@ -1094,4 +1150,3 @@ class ToolPyWindow(QMainWindow):
         self.replacement_queue_manager.clear()
         self.capture_manager.cancel()
         super().closeEvent(event)
-

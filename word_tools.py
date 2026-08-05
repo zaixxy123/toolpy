@@ -6,9 +6,18 @@ from PySide6.QtWidgets import QMessageBox
 
 POINTS_PER_CM = 28.3464567
 WD_COLLAPSE_END = 0
+WD_GOTO_PAGE = 1
+WD_GOTO_ABSOLUTE = 1
 WD_PAGE_BREAK = 7
+WD_SECTION_BREAK_CONTINUOUS = 3
 WD_ALIGN_PARAGRAPH_CENTER = 1
 WD_CELL_ALIGN_VERTICAL_CENTER = 1
+WD_STATISTIC_PAGES = 2
+WD_FIELD_PAGE = 33
+WD_HEADER_FOOTER_PRIMARY = 1
+WD_HEADER_FOOTER_FIRST_PAGE = 2
+WD_HEADER_FOOTER_EVEN_PAGES = 3
+WD_PAGE_NUMBER_STYLE_ARABIC = 0
 
 
 def _document_key(document):
@@ -202,5 +211,126 @@ def resize_images(
             parent,
             "Resize Error",
             "Could not resize the image(s).\n\n"
+            f"Error:\n{error}",
+        )
+
+
+def _remove_page_fields(footer):
+    for index in range(footer.Range.Fields.Count, 0, -1):
+        field = footer.Range.Fields(index)
+
+        if field.Type == WD_FIELD_PAGE:
+            field.Delete()
+
+
+def _add_centered_page_number(footer):
+    footer.PageNumbers.Add(
+        PageNumberAlignment=WD_ALIGN_PARAGRAPH_CENTER,
+        FirstPage=True,
+    )
+
+
+def add_page_numbers(dropdown, parent, start_page):
+    word, document = _find_selected_document(dropdown, parent)
+
+    if document is None:
+        return
+
+    try:
+        document.Activate()
+        page_count = document.ComputeStatistics(WD_STATISTIC_PAGES)
+
+        if start_page > page_count:
+            QMessageBox.warning(
+                parent,
+                "Page Not Found",
+                f"This document has {page_count} page(s).\n\n"
+                f"Choose a starting page from 1 to {page_count}.",
+            )
+            return
+
+        page_range = document.GoTo(
+            What=WD_GOTO_PAGE,
+            Which=WD_GOTO_ABSOLUTE,
+            Count=start_page,
+        )
+        page_start = page_range.Start
+        current_section = page_range.Sections(1)
+
+        if start_page > 1 and current_section.Range.Start != page_start:
+            break_range = document.Range(page_start, page_start)
+            break_range.InsertBreak(WD_SECTION_BREAK_CONTINUOUS)
+            page_range = document.GoTo(
+                What=WD_GOTO_PAGE,
+                Which=WD_GOTO_ABSOLUTE,
+                Count=start_page,
+            )
+            current_section = page_range.Sections(1)
+
+        start_section_index = None
+
+        for index in range(1, document.Sections.Count + 1):
+            section = document.Sections(index)
+
+            if section.Range.Start == current_section.Range.Start:
+                start_section_index = index
+                break
+
+        if start_section_index is None:
+            raise RuntimeError("Could not locate the starting section.")
+
+        footer_types = (
+            WD_HEADER_FOOTER_PRIMARY,
+            WD_HEADER_FOOTER_FIRST_PAGE,
+            WD_HEADER_FOOTER_EVEN_PAGES,
+        )
+
+        # Remove only PAGE fields; other footer text remains untouched.
+        for section_index in range(1, document.Sections.Count + 1):
+            section = document.Sections(section_index)
+
+            for footer_type in footer_types:
+                _remove_page_fields(section.Footers(footer_type))
+
+        for section_index in range(
+            start_section_index,
+            document.Sections.Count + 1,
+        ):
+            section = document.Sections(section_index)
+            is_start_section = section_index == start_section_index
+
+            for footer_type in footer_types:
+                footer = section.Footers(footer_type)
+
+                if is_start_section:
+                    footer.LinkToPrevious = False
+
+                if is_start_section or not footer.LinkToPrevious:
+                    _add_centered_page_number(footer)
+
+                footer.PageNumbers.RestartNumberingAtSection = (
+                    is_start_section
+                )
+                footer.PageNumbers.NumberStyle = (
+                    WD_PAGE_NUMBER_STYLE_ARABIC
+                )
+
+                if is_start_section:
+                    footer.PageNumbers.StartingNumber = 1
+
+        document.Fields.Update()
+
+        QMessageBox.information(
+            parent,
+            "Page Numbers Added",
+            f"Page {start_page} now starts at 1. "
+            "The following pages continue as 2, 3, and so on.",
+        )
+
+    except Exception as error:
+        QMessageBox.critical(
+            parent,
+            "Page Number Error",
+            "Could not add page numbers to the document.\n\n"
             f"Error:\n{error}",
         )
